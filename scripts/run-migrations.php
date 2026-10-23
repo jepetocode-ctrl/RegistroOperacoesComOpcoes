@@ -43,6 +43,9 @@ $dsn = match ($connectionConfig['driver']) {
 
 $pdo = new PDO($dsn);
 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+if ($connectionConfig['driver'] === 'sqlite') {
+    $pdo->exec('PRAGMA foreign_keys = ON');
+}
 
 $migrationFiles = glob($projectRoot . '/database/migrations/*.php');
 sort($migrationFiles);
