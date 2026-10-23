@@ -339,3 +339,12 @@ Em 2026-10-23 foi modificada `resources/views/dashboard/index.php`, a view carre
 **Limite arquitetural importante:** a fórmula e o solver foram colocados em JavaScript inline na view nesta primeira alteração. Não foi localizado o código do motor TypeScript por caminhos candidatos (`src/index.ts`, `src/financial-engine.ts`, `src/financialEngine.ts`) e `package.json` não declara build/test runner TypeScript. Portanto, a integração exigida com o motor financeiro TypeScript **não está concluída**; não duplicar essa lógica como solução definitiva. Próximo passo é inventariar o repositório, localizar/restaurar o motor real e mover cálculo/solver para módulo tipado testável, deixando a view apenas como adaptador de interface.
 
 Os strikes listados não são inferidos nem gerados: o usuário precisa informar a grade. O resultado é teórico e não representa cotação, liquidez ou disponibilidade. Não foram executados testes locais nesta sessão via conector GitHub; validação numérica automatizada e revisão de casos extremos continuam pendentes.
+
+
+## Etapa 8 — Interface e dashboard (implementação inicial)
+
+A dashboard autenticada em `resources/views/dashboard/index.php` foi ampliada com menu lateral responsivo, visão geral, indicadores, gráfico, alertas, tabela de posições, tabela de lotes em aberto, filtros, carregamento e mensagens de erro. Os dados são carregados de `/api/positions`, `/api/option-contracts` e `/api/assets`. A interface usa apenas um endpoint autoritativo para posições, pois o GET de operações também retorna posições agregadas; não fazer as duas chamadas para o mesmo KPI.
+
+O resultado não realizado é marcado indisponível se houver posição aberta sem cotação registrada. Fluxo de caixa (fluxo bruto menos custos) é exibido como métrica separada e explicitamente não equivale a lucro. Os strikes e preços de mercado não são fabricados pela dashboard.
+
+A Etapa 8 permanece em andamento: ainda falta executar testes automatizados, verificar manualmente desktop/celular, validar KPIs com cenários de referência e revisar a representação gráfica de resultados negativos. A Etapa 7 (integração da calculadora com o motor TypeScript) também permanece pendente.
