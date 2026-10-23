@@ -33,6 +33,12 @@ final class OperationController
         $path = trim(parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/', '/');
         $parts = explode('/', $path);
         try {
+            if (($parts[1] ?? '') === 'quotes' && $method === 'POST') {
+                $result = $this->service->recordQuote((int)$user['id'], Request::all());
+                $status = $result['status'] ?? 200; unset($result['status']);
+                Response::json($result, $status);
+                return;
+            }
             if (($parts[1] ?? '') === 'positions' && $method === 'GET') {
                 $contractId = isset($parts[2]) && ctype_digit($parts[2]) ? (int)$parts[2] : null;
                 Response::json(['success'=>true,'data'=>$this->service->positions((int)$user['id'],$contractId)]);
