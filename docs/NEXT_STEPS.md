@@ -2,26 +2,26 @@
 
 ## Etapa atual
 
-Etapa 4 — Cadastros e banco de dados financeiro.
+Etapa 5 — Operações e posições.
 
 ## Prioridade imediata
 
-1. Executar `composer test` e `php scripts/run-migrations.php` em ambiente configurado.
-2. Adicionar testes para CRUD de ativos, contratos e estratégias.
-3. Testar que usuário A não consulta, altera ou referencia dados do usuário B.
-4. Testar duplicidade por usuário, validação de campos, status inativo e restrições de chave estrangeira em PostgreSQL e SQLite.
-5. Aplicar proteção CSRF em todos os métodos de escrita autenticados.
-6. Criar a interface HTML/CSS/JavaScript para os cadastros.
+1. Executar composer test e php scripts/run-migrations.php.
+2. Validar a suíte em PostgreSQL e SQLite.
+3. Adicionar testes para inversão, cotação e resultado não realizado, múltiplas aberturas FIFO e rollback após falha na gravação de histórico/alocações.
+4. Revisar a alocação de custos e política de arredondamento em operações parciais sucessivas.
+5. Definir fluxo compensatório de correção/cancelamento sem mutar o ledger financeiro.
+6. Integrar os endpoints a uma interface HTML/CSS/JavaScript.
 
-## Critérios de aceitação da Etapa 4
+## Critérios de aceitação
 
-- Registros persistidos e consultáveis.
-- Relações de contratos com ativos consistentes e limitadas ao mesmo usuário.
-- Isolamento de dados verificado por testes.
-- Edição e desativação lógica cobertas por testes.
-- Migrações executam em PostgreSQL e no fallback SQLite.
-- APIs autenticadas e protegidas contra CSRF.
+- Quantidades abertas calculadas a partir de operações e alocações de encerramento.
+- Encerramento parcial/total não excede a posição disponível.
+- Inversão explícita validada e consistente.
+- Fluxo financeiro bruto, custos, resultado realizado e resultado não realizado apresentados separadamente.
+- Registro de operação, alocações e histórico gravados em transação única.
+- Dados sempre escopados pelo usuário autenticado.
 
-## Observação de continuidade
+## Observação
 
-A documentação anterior indicava Etapa 2 como atual, embora já existissem fluxos de autenticação e código do motor financeiro. Consulte `docs/PROJECT_STATUS.md` para distinguir funcionalidades existentes de critérios ainda não verificados.
+A implementação inicial está registrada, mas a etapa permanece não validada até que testes automatizados e migrações sejam executados nos bancos suportados.
