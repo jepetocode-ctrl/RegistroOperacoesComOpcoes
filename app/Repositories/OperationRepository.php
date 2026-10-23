@@ -74,6 +74,21 @@ final class OperationRepository
         return $out;
     }
 
+    public function insertQuote(int $userId, int $contractId, float $price, string $quotedAt): int
+    {
+        $stmt = $this->pdo->prepare('INSERT INTO market_quotes (user_id, option_contract_id, quote_price, quoted_at) VALUES (:user_id, :contract_id, :price, :quoted_at)');
+        $stmt->execute(['user_id' => $userId, 'contract_id' => $contractId, 'price' => $price, 'quoted_at' => $quotedAt]);
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    public function latestQuote(int $userId, int $contractId): ?array
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM market_quotes WHERE user_id = :user_id AND option_contract_id = :contract_id ORDER BY quoted_at DESC, id DESC LIMIT 1');
+        $stmt->execute(['user_id' => $userId, 'contract_id' => $contractId]);
+        $row = $stmt->fetch();
+        return $row === false ? null : $row;
+    }
+
     public function history(int $userId, int $operationId): array
     {
         $stmt = $this->pdo->prepare('SELECT * FROM operation_history WHERE user_id = :user_id AND operation_id = :operation_id ORDER BY id');
