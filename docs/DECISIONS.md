@@ -34,7 +34,8 @@
 - Integração TypeScript separada do backend e da interface.
 - Núcleo financeiro independente de sessão, banco e visual.
 
-## Validação pendente
+## Validação concluída
 
-- A implementação inicial da Etapa 6 não deve ser considerada concluída até execução de testes e migrações em SQLite e PostgreSQL.
-- Revisar alocação de custos e concorrência de rolagens antes de uso financeiro real.
+- A Etapa 6 foi validada no checkout atual pela execução de `composer test` e `php scripts/run-migrations.php`.
+- Os testes de rolagem cobrem a transação de encerramento + abertura, o registro do UUID, o histórico e o rollback em falha de gravação.
+- O principal risco que permanece é a concorrência de rolagens simultâneas sobre a mesma operação de origem e a política de alocação de custos em cenários mais complexos.

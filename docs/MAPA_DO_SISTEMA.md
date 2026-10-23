@@ -2,7 +2,7 @@
 
 > **Fonte de verdade:** código da branch `main`. Este documento foi montado a partir dos arquivos efetivamente consultados no repositório. Ele não substitui a inspeção do código. Onde não foi possível inspecionar o inventário completo, isso está indicado explicitamente em vez de presumir que algo não existe.
 >
-> **Status documental:** inventário inicial criado em 2026-10-23. A Etapa 5 e a Etapa 6 estão implementadas parcialmente, mas **não validadas**: o próprio projeto registra que a suíte e as migrações não foram executadas nesta sessão.
+> **Status documental:** inventário inicial criado em 2026-10-23. A Etapa 5 e a Etapa 6 estão implementadas e validadas no checkout atual pela execução de `composer test` e `php scripts/run-migrations.php`. O mapa continua sendo fonte de referência para arquitetura e riscos, não substituindo execução do código.
 
 ## 1. Como usar este mapa
 

@@ -39,4 +39,4 @@ Organizar a aplicação em camadas para manter a separação de responsabilidade
 
 ## Continuidade
 
-Consulte `docs/PROJECT_STATUS.md` e `docs/NEXT_STEPS.md` antes de alterações estruturais. A Etapa 6 está implementada inicialmente, mas depende de execução de testes e validação PostgreSQL/SQLite.
+Consulte `docs/PROJECT_STATUS.md` e `docs/NEXT_STEPS.md` antes de alterações estruturais. A Etapa 6 foi validada no checkout atual pela suíte PHPUnit e pela execução de migrações; o próximo foco é refinamento de concorrência, UX e regras de custo quando houver novas operações de rolagem.

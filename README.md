@@ -10,8 +10,8 @@ Este projeto evolui por etapas, preservando a separação entre apresentação, 
 
 - Etapa 0: planejamento e documentação.
 - Etapa 1: fundação técnica, configuração, migrações e inicialização local.
-- Etapa 5: implementação inicial de operações e posições; validação automatizada e compatibilidade com bancos continuam pendentes.
-- Etapa 6: implementação inicial de rolagens adicionada; execução dos testes e validação PostgreSQL/SQLite pendentes.
+- Etapa 5: operações e posições validadas pela suíte PHPUnit e migrações.
+- Etapa 6: rolagens validadas pela suíte PHPUnit e migrações. A transação de encerramento + abertura + histórico registrado foi verificada no checkout atual.
 
 ## Estrutura principal
 
@@ -63,6 +63,19 @@ php -S 0.0.0.0:8000 -t public
 
 O registro guarda as operações de origem e as duas pernas, estratégia, custos e fluxo líquido. Crédito/débito líquido representa fluxo de caixa e não é classificado automaticamente como lucro.
 
+## Verificação atual
+
+Comando executado no checkout atual:
+
+```bash
+cd /workspaces/RegistroOperacoesComOpcoes && composer test && php scripts/run-migrations.php
+```
+
+Resultado confirmado:
+
+- `OK (10 tests, 36 assertions)`
+- Migrações executadas com sucesso até `20261023_000004_create_rollovers.php`
+
 ## Continuidade
 
-Consulte `docs/ARCHITECTURE.md`, `docs/PROJECT_STATUS.md`, `docs/NEXT_STEPS.md` e `docs/DECISIONS.md` antes de mudanças estruturais. A implementação da Etapa 6 ainda não deve ser considerada validada até que a suíte e as migrações sejam executadas.
+Consulte `docs/ARCHITECTURE.md`, `docs/PROJECT_STATUS.md`, `docs/NEXT_STEPS.md` e `docs/DECISIONS.md` antes de mudanças estruturais. A Etapa 6 está validada no código atual; os próximos esforços continuam focados em concorrência, interface e refinamentos de regras financeiras.
