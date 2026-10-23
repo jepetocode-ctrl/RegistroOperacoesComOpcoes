@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Middleware\AuthMiddleware;
+use App\Middleware\CsrfMiddleware;
 use App\Repositories\FinancialRegistrationRepository;
 use App\Services\FinancialRegistrationService;
 use App\Support\Database;
@@ -27,6 +28,10 @@ final class FinancialRegistrationController
     {
         if (!AuthMiddleware::isAuthenticated()) {
             Response::json(['success' => false, 'message' => 'Não autenticado.'], 401);
+            return;
+        }
+        if (in_array(Request::method(), ['POST', 'PUT', 'PATCH'], true) && !CsrfMiddleware::validate()) {
+            Response::json(['success' => false, 'message' => 'Token CSRF inválido.'], 419);
             return;
         }
         $user = SessionManager::user();
