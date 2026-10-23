@@ -47,8 +47,8 @@ final class RolloverService
                 $strategyId = $source['strategy_id'] === null ? null : (int)$source['strategy_id'];
             }
 
-            $q = $this->pdo->prepare('SELECT COALESCE(SUM(quantity), 0) FROM operation_closures WHERE user_id = :user_id AND opening_operation_id = :source_id');
-            $q->execute(['user_id'=>$userId, 'source_id'=>$sourceId]);
+            $q = $this->pdo->prepare('SELECT (SELECT COALESCE(SUM(quantity),0) FROM operation_closures WHERE user_id = :user_id_a AND opening_operation_id = :source_id_a) + (SELECT COALESCE(SUM(quantity),0) FROM operation_closures WHERE user_id = :user_id_b AND closing_operation_id = :source_id_b)');
+            $q->execute(['user_id_a'=>$userId,'source_id_a'=>$sourceId,'user_id_b'=>$userId,'source_id_b'=>$sourceId]);
             $remaining = (int)$source['quantity'] - (int)$q->fetchColumn();
             if ($quantity > $remaining) return $this->reject(['quantity'=>'A quantidade excede a posição remanescente da operação de origem.']);
 
