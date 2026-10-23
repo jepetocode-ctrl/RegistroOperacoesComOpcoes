@@ -2,32 +2,29 @@
 
 ## Motor principal
 
-O banco principal da aplicação será PostgreSQL. A configuração de exemplo local usa o serviço `postgres` descrito em `docker-compose.yml`.
+PostgreSQL é o banco principal; SQLite é usado no desenvolvimento/testes quando configurado.
 
 ## Convenções
 
-- Persistência em transações explícitas.
-- Valores financeiros em `NUMERIC`/`DECIMAL`.
-- Chaves primárias e estrangeiras sempre documentadas.
-- Índices por usuário, ativo, estratégia e data.
-- Migrações versionadas em `database/migrations/`.
+- Persistência financeira em NUMERIC/DECIMAL.
+- Migrações versionadas em database/migrations/.
+- Operações registradas como ledger; encerramentos são alocações referenciando abertura e fechamento.
+- Operação, alocações e histórico persistidos em transação única.
+- Cotações são registros históricos; posições usam a cotação mais recente por contrato e usuário.
 
-## Estrutura inicial
+## Migrações
 
-As migrações iniciais incluem tabelas base para suporte do sistema, com foco em ambiente e auditoria.
+- 20261023_000001_create_app_base_tables.php: usuários, configurações e auditoria.
+- 20261023_000002_create_financial_registrations.php: ativos, contratos e estratégias.
+- 20261023_000003_create_operations_and_positions.php: operações, alocações de encerramento, cotações e histórico.
 
-Próximas migrações devem incluir:
+## Tabelas de operações
 
-- `users`
-- `assets`
-- `option_contracts`
-- `strategies`
-- `operations`
-- `rollovers`
-- `market_quotes`
-- `settings`
-- `audit_logs`
+- operations: execução de compra/venda, fluxo bruto e custos.
+- operation_closures: quantidade alocada de cada abertura para cada encerramento e resultado realizado.
+- market_quotes: histórico de cotações por contrato e usuário.
+- operation_history: trilha append-only de ações de operação.
 
-## Acesso
+## Integridade
 
-A conexão é configurada via `config/database.php` e variáveis de ambiente em `.env`.
+As rotinas de aplicação validam titularidade do contrato e estratégia. Chaves estrangeiras preservam referências. Consultas e mutações financeiras sempre usam o user_id autenticado.
