@@ -327,3 +327,15 @@ Em cada alteração:
 5. Mapear telas/componentes, chamadas de API, eventos e integrações externas.
 6. Relacionar testes por módulo e executar a suíte em ambiente configurado.
 7. Criar um verificador de links/caminhos e, se viável, extração automatizada de símbolos sem sobrescrever a documentação manual de regras financeiras.
+
+
+## 15. Etapa 7 — Calculadoras (implementação parcial)
+
+Em 2026-10-23 foi modificada `resources/views/dashboard/index.php`, a view carregada por `DashboardController::index()` em rota autenticada `GET /dashboard`. A view agora contém duas abas acessíveis:
+
+- Black-Scholes-Merton para call/put europeia com preço do ativo, strike, prazo em anos, volatilidade anual, taxa livre de risco e dividend yield contínuo. Percentuais são convertidos para decimais. Casos de prazo zero e volatilidade zero têm tratamento explícito.
+- Strike reverso por bisseção, com expansão de intervalo, validação de parâmetros e mensagem quando não se encontra intervalo com raiz. Opcionalmente aceita grade de strikes listados informada pelo usuário e reporta separadamente strike teórico e strike listado mais próximo.
+
+**Limite arquitetural importante:** a fórmula e o solver foram colocados em JavaScript inline na view nesta primeira alteração. Não foi localizado o código do motor TypeScript por caminhos candidatos (`src/index.ts`, `src/financial-engine.ts`, `src/financialEngine.ts`) e `package.json` não declara build/test runner TypeScript. Portanto, a integração exigida com o motor financeiro TypeScript **não está concluída**; não duplicar essa lógica como solução definitiva. Próximo passo é inventariar o repositório, localizar/restaurar o motor real e mover cálculo/solver para módulo tipado testável, deixando a view apenas como adaptador de interface.
+
+Os strikes listados não são inferidos nem gerados: o usuário precisa informar a grade. O resultado é teórico e não representa cotação, liquidez ou disponibilidade. Não foram executados testes locais nesta sessão via conector GitHub; validação numérica automatizada e revisão de casos extremos continuam pendentes.
