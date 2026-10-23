@@ -86,6 +86,9 @@
         <div class="brand">Registro de Operações com Opções</div>
         <div class="actions">
             <span>Olá, <?php echo htmlspecialchars((string) ($user['username'] ?? 'Usuário'), ENT_QUOTES, 'UTF-8'); ?></span>
+            <?php if (($user['profile'] ?? 'USER') === 'ADMIN'): ?>
+                <a href="/admin/users" style="color:white;text-decoration:none">Gerenciar usuários</a>
+            <?php endif; ?>
             <a href="/change-password" style="color:white;text-decoration:none">Alterar senha</a>
             <form class="logout-form" method="post" action="/logout">
                 <input type="hidden" name="_csrf_token" value="<?php echo htmlspecialchars((string) App\Support\SessionManager::csrfToken(), ENT_QUOTES, 'UTF-8'); ?>">

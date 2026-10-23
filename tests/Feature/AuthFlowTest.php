@@ -32,6 +32,7 @@ final class AuthFlowTest extends TestCase
                 profile TEXT NOT NULL DEFAULT 'ADMIN',
                 status TEXT NOT NULL DEFAULT 'ACTIVE',
                 must_change_password INTEGER NOT NULL DEFAULT 1,
+                permissions TEXT NOT NULL DEFAULT '[]',
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
@@ -63,5 +64,28 @@ final class AuthFlowTest extends TestCase
 
         $this->assertFalse($result['success']);
         $this->assertSame('Credenciais inválidas.', $result['message']);
+    }
+
+    public function testRepositoryCanCreateUserAndPersistPermissions(): void
+    {
+        $repository = new UserRepository($this->pdo);
+
+        $userId = $repository->create([
+            'username' => 'analista',
+            'password_hash' => password_hash('senha123', PASSWORD_DEFAULT),
+            'profile' => 'USER',
+            'status' => 'ACTIVE',
+            'must_change_password' => false,
+            'permissions' => ['dashboard', 'operations'],
+        ]);
+
+        $repository->updatePermissions($userId, ['dashboard', 'operations', 'reports']);
+        $repository->updateProfile($userId, 'MANAGER');
+
+        $user = $repository->findById($userId);
+
+        $this->assertNotNull($user);
+        $this->assertSame('MANAGER', $user['profile']);
+        $this->assertSame(['dashboard', 'operations', 'reports'], $user['permissions']);
     }
 }

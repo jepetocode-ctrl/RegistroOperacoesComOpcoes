@@ -29,28 +29,29 @@ Etapa 6 — Rolagens validada no checkout atual. A base funcional de transação
 A Etapa 6 foi validada no ambiente atual com `composer test` e `php scripts/run-migrations.php`; as pendências restantes continuam sendo refinamentos de concorrência, UX e regras de custo mais complexas.
 
 
-## Etapa 7 — Calculadoras (em andamento)
+## Etapa 7 — Calculadoras (núcleo validado)
 
 Foi adicionada uma primeira interface em `resources/views/dashboard/index.php` com formulário Black-Scholes-Merton e strike reverso. A grade de strikes listados só é usada quando fornecida pelo usuário; strike teórico e listado são apresentados separadamente.
 
+### Status atual
+
+- Core validado: `cd src/financial-engine && npm test` -> `pass 3`, `fail 0`.
+- A arquitetura correta continua sendo manter o núcleo em `src/financial-engine` e a view como adaptador visual.
+- A duplicação de cálculo em JavaScript inline ainda precisa ser removida para consolidar a regra em um único módulo.
+
 ### Pendências obrigatórias antes de concluir
 
-1. Localizar/inventariar o motor TypeScript real e o processo de build; migrar os cálculos para o motor tipado, sem manter duplicação financeira na view.
-2. Criar testes automatizados de preço call/put com valores de referência, paridade put-call, limites de prazo zero, volatilidade zero, taxa/dividend yield e strike reverso com preço-alvo dentro/fora do domínio.
-3. Definir e testar tolerância numérica, precisão da CDF normal e comportamento quando há múltiplas soluções/ausência de solução.
-4. Testar no navegador a validação dos campos, mensagens acessíveis e responsividade.
-5. Executar `composer test`, testes do motor e migrações aplicáveis no checkout real; registrar apenas resultados efetivamente observados.
-
-A implementação atual é parcial. O motor TypeScript está em `src/financial-engine/` e possui scripts `build` e `test`, mas não houve execução dos testes nesta sessão nem integração da view com o artefato compilado. Não marcar Etapa 7 como concluída.
+1. Integrar a view ao módulo TypeScript sem duplicar a lógica de cálculo.
+2. Validar em navegador os casos de entrada/erro, tolerância numérica e ausência de solução.
+3. Confirmar que as mensagens e a acessibilidade da calculadora atendem ao padrão do dashboard.
 
 
-## Etapa 8 — Interface e dashboard (em andamento)
+## Etapa 8 — Interface e dashboard (estrutura validada; validação visual pendente)
 
-1. Executar `composer test` e os testes do motor financeiro no checkout; corrigir regressões encontradas.
-2. Validar em navegador desktop e celular o layout, navegação, filtros, acessibilidade, carregamento e mensagens de erro.
-3. Conferir indicadores com cenários controlados: carteira vazia, posição aberta com/sem cotação, encerramento parcial, múltiplos contratos e rolagem.
-4. Confirmar que realizado é somado uma vez por contrato e que fluxo de caixa não é rotulado como lucro; documentar a definição financeira dos KPIs.
-5. Revisar o gráfico para resultados positivos/negativos e garantir que o sentido dos valores esteja visualmente claro.
-6. Integrar a calculadora à engine TypeScript e concluir as pendências da Etapa 7 antes de considerar o conjunto da interface validado.
+1. Confirmar em navegador desktop e celular o layout, navegação, filtros, acessibilidade, carregamento e mensagens de erro.
+2. Conferir indicadores com cenários controlados: carteira vazia, posição aberta com/sem cotação, encerramento parcial, múltiplos contratos e rolagem.
+3. Confirmar que realizado é somado uma vez por contrato e que fluxo de caixa não é rotulado como lucro; documentar a definição financeira dos KPIs.
+4. Revisar o gráfico para resultados positivos/negativos e garantir que o sentido dos valores esteja visualmente claro.
+5. Concluir a integração da calculadora ao motor TypeScript e finalizar a etapa 7 antes de declarar a interface como pronta.
 
-A implementação inicial usa dados dos endpoints existentes e não cria preços fictícios. Testes de execução e navegador ainda não foram feitos nesta sessão; não marcar a etapa como concluída.
+A implementação inicial usa dados reais dos endpoints existentes e não cria preços fictícios. O backend permanece validado, mas a etapa visual ainda exige teste de navegador e revisão de UX antes de fechamento formal.

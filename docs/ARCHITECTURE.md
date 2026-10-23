@@ -37,6 +37,12 @@ Organizar a aplicação em camadas para manter a separação de responsabilidade
 - Requisições não autenticadas retornam HTTP 401.
 - Erros internos retornam HTTP 500 com payload padronizado.
 
+## Validação atual de funcionalidades visuais e numéricas
+
+- Etapa 7: o núcleo financeiro em `src/financial-engine` foi validado pelos testes automatizados do pacote TypeScript (`blackScholes` e `findReverseStrike`), com 3 testes aprovados e 0 falhas.
+- Etapa 8: a dashboard autenticada em `resources/views/dashboard/index.php` foi implementada com indicadores reais consumindo `/api/positions`, `/api/option-contracts` e `/api/assets`, mas a validação final em navegador, responsividade e UX ainda exige checagem manual/automática no ambiente de UI.
+- A regra arquitetural continua sendo manter o núcleo numérico em TypeScript e a view como camadas de apresentação/adaptação; a duplicação inline de cálculos na view deve ser removida quando a integração final for concluída.
+
 ## Continuidade
 
-Consulte `docs/PROJECT_STATUS.md` e `docs/NEXT_STEPS.md` antes de alterações estruturais. A Etapa 6 foi validada no checkout atual pela suíte PHPUnit e pela execução de migrações; o próximo foco é refinamento de concorrência, UX e regras de custo quando houver novas operações de rolagem.
+Consulte `docs/PROJECT_STATUS.md` e `docs/NEXT_STEPS.md` antes de alterações estruturais. O backend e o motor financeiro estão validados; a etapa final de integração visual da dashboard e a revisão de UX continuam como pendência de validação prática.

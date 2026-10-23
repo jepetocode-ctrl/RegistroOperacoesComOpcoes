@@ -12,6 +12,8 @@ Este projeto evolui por etapas, preservando a separação entre apresentação, 
 - Etapa 1: fundação técnica, configuração, migrações e inicialização local.
 - Etapa 5: operações e posições validadas pela suíte PHPUnit e migrações.
 - Etapa 6: rolagens validadas pela suíte PHPUnit e migrações. A transação de encerramento + abertura + histórico registrado foi verificada no checkout atual.
+- Etapa 7: núcleo financeiro TypeScript validado por testes automáticos (`blackScholes` e `findReverseStrike`); a integração com a dashboard ainda precisa ser concluída sem duplicar regra na view.
+- Etapa 8: dashboard autenticada implementada e consumindo dados reais da API; validação em navegador e responsividade seguem pendentes.
 
 ## Estrutura principal
 
@@ -52,7 +54,7 @@ composer install
 cp .env.example .env
 composer test
 php scripts/run-migrations.php
-php -S 0.0.0.0:8000 -t public
+npm run dev
 ```
 
 ## API de rolagens
@@ -73,9 +75,10 @@ cd /workspaces/RegistroOperacoesComOpcoes && composer test && php scripts/run-mi
 
 Resultado confirmado:
 
-- `OK (10 tests, 36 assertions)`
+- `OK (10 tests, 36 assertions)` no backend PHP
 - Migrações executadas com sucesso até `20261023_000004_create_rollovers.php`
+- `cd src/financial-engine && npm test` -> `pass 3`, `fail 0`
 
 ## Continuidade
 
-Consulte `docs/ARCHITECTURE.md`, `docs/PROJECT_STATUS.md`, `docs/NEXT_STEPS.md` e `docs/DECISIONS.md` antes de mudanças estruturais. A Etapa 6 está validada no código atual; os próximos esforços continuam focados em concorrência, interface e refinamentos de regras financeiras.
+Consulte `docs/ARCHITECTURE.md`, `docs/PROJECT_STATUS.md`, `docs/NEXT_STEPS.md` e `docs/DECISIONS.md` antes de mudanças estruturais. A Etapa 7 está validada no núcleo financeiro e a Etapa 8 está implementada em estrutura/fluxo, mas a integração final da dashboard com o motor e a validação visual em navegador continuam como próximos passos.

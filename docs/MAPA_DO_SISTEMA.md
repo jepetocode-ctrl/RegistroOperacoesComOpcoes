@@ -329,22 +329,26 @@ Em cada alteração:
 7. Criar um verificador de links/caminhos e, se viável, extração automatizada de símbolos sem sobrescrever a documentação manual de regras financeiras.
 
 
-## 15. Etapa 7 — Calculadoras (implementação parcial)
+## 15. Etapa 7 — Calculadoras (núcleo validado; integração e UX pendentes)
 
 Em 2026-10-23 foi modificada `resources/views/dashboard/index.php`, a view carregada por `DashboardController::index()` em rota autenticada `GET /dashboard`. A view agora contém duas abas acessíveis:
 
 - Black-Scholes-Merton para call/put europeia com preço do ativo, strike, prazo em anos, volatilidade anual, taxa livre de risco e dividend yield contínuo. Percentuais são convertidos para decimais. Casos de prazo zero e volatilidade zero têm tratamento explícito.
 - Strike reverso por bisseção, com expansão de intervalo, validação de parâmetros e mensagem quando não se encontra intervalo com raiz. Opcionalmente aceita grade de strikes listados informada pelo usuário e reporta separadamente strike teórico e strike listado mais próximo.
 
-**Limite arquitetural importante:** a fórmula e o solver foram colocados em JavaScript inline na view nesta primeira alteração. A árvore real contém o motor TypeScript em `src/financial-engine/`, com `package.json`, `tsconfig.json` e testes. O pacote raiz não declara o build, e a integração da view ao artefato compilado **não está concluída**; não duplicar essa lógica como solução definitiva. Próximo passo é inventariar o repositório, localizar/restaurar o motor real e mover cálculo/solver para módulo tipado testável, deixando a view apenas como adaptador de interface.
+**Validação executada:** o motor real em `src/financial-engine` foi testado com `cd src/financial-engine && npm test`, e o resultado foi `pass 3`, `fail 0`.
 
-Os strikes listados não são inferidos nem gerados: o usuário precisa informar a grade. O resultado é teórico e não representa cotação, liquidez ou disponibilidade. Não foram executados testes locais nesta sessão via conector GitHub; validação numérica automatizada e revisão de casos extremos continuam pendentes.
+**Estado arquitetural:** a lógica ainda está parcialmente duplicada na view em JavaScript inline, e a integração final entre a view e o módulo TypeScript ainda não foi concluída. A decisão correta permanece ser manter o núcleo numérico em `src/financial-engine` e a interface apenas como adaptador. O motor está validado, mas a união final com a dashboard precisa ser concluída sem duplicar regra financeira.
+
+Os strikes listados não são inferidos nem gerados: o usuário precisa informar a grade. O resultado é teórico e não representa cotação, liquidez ou disponibilidade.
 
 
-## Etapa 8 — Interface e dashboard (implementação inicial)
+## 16. Etapa 8 — Interface e dashboard (implementação inicial validada em estrutura, não em navegador)
 
-A dashboard autenticada em `resources/views/dashboard/index.php` foi ampliada com menu lateral responsivo, visão geral, indicadores, gráfico, alertas, tabela de posições, tabela de lotes em aberto, filtros, carregamento e mensagens de erro. Os dados são carregados de `/api/positions`, `/api/option-contracts` e `/api/assets`. A interface usa apenas um endpoint autoritativo para posições, pois o GET de operações também retorna posições agregadas; não fazer as duas chamadas para o mesmo KPI.
+A dashboard autenticada em `resources/views/dashboard/index.php` foi ampliada com menu lateral responsivo, visão geral, indicadores, gráfico, alertas, tabela de posições, tabela de lotes em aberto, filtros, carregamento e mensagens de erro. Os dados são carregados de `/api/positions`, `/api/option-contracts` e `/api/assets`. A interface usa apenas um endpoint autoritativo para posições, evitando duplicação de KPIs.
 
 O resultado não realizado é marcado indisponível se houver posição aberta sem cotação registrada. Fluxo de caixa (fluxo bruto menos custos) é exibido como métrica separada e explicitamente não equivale a lucro. Os strikes e preços de mercado não são fabricados pela dashboard.
 
-A Etapa 8 permanece em andamento: ainda falta executar testes automatizados, verificar manualmente desktop/celular, validar KPIs com cenários de referência e revisar a representação gráfica de resultados negativos. A Etapa 7 (integração da calculadora com o motor TypeScript) também permanece pendente.
+**Validação executada:** a aplicação PHP e as migrações do backend continuam verdes com `composer test && php scripts/run-migrations.php` (`OK (10 tests, 36 assertions)`), e a UI existe no código. **Validação de navegador e responsividade ainda não foi executada** neste ambiente; por isso, a etapa 8 não deve ser declarada concluída como entrega visual final.
+
+A etapa 7 (integração final da calculadora com o motor) continua como item crítico antes da confirmação final da interface.

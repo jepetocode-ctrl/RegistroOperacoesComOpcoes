@@ -45,5 +45,13 @@
 
 - A tela da dashboard foi estendida com formulários Black-Scholes-Merton e strike reverso.
 - Strikes listados só podem ser comparados contra uma grade explicitamente fornecida; não inferir listagem, cotação ou liquidez.
-- O cálculo está temporariamente inline na view para viabilizar o primeiro fluxo visual. Isso não altera a decisão arquitetural de manter regras financeiras no motor TypeScript: extrair a implementação para o motor tipado é uma pendência obrigatória antes de considerar a etapa concluída.
-- As aproximações numéricas e casos-limite precisam de testes de referência independentes antes de uso financeiro confiável.
+- O núcleo numérico está validado em `src/financial-engine` por testes automáticos (`npm test` com `3` testes aprovados e `0` falhas).
+- O cálculo ainda está parcialmente duplicado em JavaScript inline na view; a retirada dessa duplicação e a integração final do motor à interface continuam como requisito antes de fechar a etapa como entrega final.
+- As aproximações numéricas e casos-limite continuam sendo objetos de revisão de UX e regressão, mas o motor já está validado no código atual.
+
+## Dashboard e UX (Etapa 8)
+
+- A dashboard autenticada foi implementada como vista de trabalho com indicadores de desempenho, posições, lotes em aberto e widgets de alerta.
+- Os dados são consumidos através da API do backend; não há mock de valores ou geração artificial de mercado na interface.
+- A estrutura e o fluxo de carregamento foram validados do lado do código e do backend, mas a validação final em navegador, responsividade e revisão de UX ainda precisa ser executada em ambiente de UI.
+- A etapa 8 deve ser tratada como parcialmente validada até a checagem prática em navegador e a revisão dos KPI com cenários reais.
