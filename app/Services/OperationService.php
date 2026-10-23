@@ -28,10 +28,10 @@ final class OperationService
 
         try {
             $this->pdo->beginTransaction();
-            $contract = $this->pdo->prepare('SELECT id, contract_multiplier FROM option_contracts WHERE id = :id AND user_id = :user_id AND status = :status');
-            $contract->execute(['id' => $contractId, 'user_id' => $userId, 'status' => 'ACTIVE']);
+            $contract = $this->pdo->prepare('SELECT id, contract_multiplier FROM option_contracts WHERE id = :id AND status = :status');
+            $contract->execute(['id' => $contractId, 'status' => 'ACTIVE']);
             $contractRow = $contract->fetch(PDO::FETCH_ASSOC);
-            if (!$contractRow) { $this->pdo->rollBack(); return ['success' => false, 'status' => 422, 'errors' => ['option_contract_id' => 'Contrato inexistente, inativo ou de outro usuário.']]; }
+            if (!$contractRow) { $this->pdo->rollBack(); return ['success' => false, 'status' => 422, 'errors' => ['option_contract_id' => 'Contrato inexistente ou inativo.']]; }
             $multiplier = (int)$contractRow['contract_multiplier'];
             $gross = round($price * $quantity * $multiplier, 6) * ($side === 'BUY' ? -1 : 1);
 
@@ -66,9 +66,9 @@ final class OperationService
             }
             $strategyId = isset($input['strategy_id']) ? (int)$input['strategy_id'] : null;
             if ($strategyId !== null) {
-                $s = $this->pdo->prepare('SELECT id FROM strategies WHERE id = :id AND user_id = :user_id');
-                $s->execute(['id' => $strategyId, 'user_id' => $userId]);
-                if (!$s->fetchColumn()) { $this->pdo->rollBack(); return ['success' => false, 'status' => 422, 'errors' => ['strategy_id' => 'Estratégia inexistente ou de outro usuário.']]; }
+                $s = $this->pdo->prepare('SELECT id FROM strategies WHERE id = :id');
+                $s->execute(['id' => $strategyId]);
+                if (!$s->fetchColumn()) { $this->pdo->rollBack(); return ['success' => false, 'status' => 422, 'errors' => ['strategy_id' => 'Estratégia inexistente.']]; }
             }
             $data = [
                 'user_id' => $userId, 'option_contract_id' => $contractId, 'strategy_id' => $strategyId,
@@ -107,8 +107,8 @@ final class OperationService
         foreach ($operations as $op) $contracts[(int)$op['option_contract_id']][] = $op;
         $positions = [];
         foreach ($contracts as $id => $rows) {
-            $contractStmt = $this->pdo->prepare('SELECT contract_multiplier FROM option_contracts WHERE id = :id AND user_id = :user_id');
-            $contractStmt->execute(['id' => (int)$id, 'user_id' => $userId]);
+            $contractStmt = $this->pdo->prepare('SELECT contract_multiplier FROM option_contracts WHERE id = :id');
+            $contractStmt->execute(['id' => (int)$id]);
             $multiplier = (int)($contractStmt->fetchColumn() ?: 1);
             $opens = $this->openPositions($userId, (int)$id);
             $net = 0;
@@ -148,9 +148,9 @@ final class OperationService
         }
         $quotedAt = (string)($input['quoted_at'] ?? date('Y-m-d H:i:s'));
         if (strtotime($quotedAt) === false) return ['success' => false, 'status' => 422, 'errors' => ['quoted_at' => 'Data/hora inválida.']];
-        $stmt = $this->pdo->prepare('SELECT id FROM option_contracts WHERE id = :id AND user_id = :user_id');
-        $stmt->execute(['id' => $contractId, 'user_id' => $userId]);
-        if (!$stmt->fetchColumn()) return ['success' => false, 'status' => 422, 'errors' => ['option_contract_id' => 'Contrato inexistente ou de outro usuário.']];
+        $stmt = $this->pdo->prepare('SELECT id FROM option_contracts WHERE id = :id');
+        $stmt->execute(['id' => $contractId]);
+        if (!$stmt->fetchColumn()) return ['success' => false, 'status' => 422, 'errors' => ['option_contract_id' => 'Contrato inexistente.']];
         $this->pdo->beginTransaction();
         try {
             $id = $this->repository->insertQuote($userId, (int)$contractId, (float)$price, $quotedAt);

@@ -25,6 +25,7 @@ final class OperationServiceTest extends TestCase
         $this->pdo->exec("CREATE TABLE strategies (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, name TEXT NOT NULL, FOREIGN KEY(user_id) REFERENCES users(id))");
         $this->pdo->exec("CREATE TABLE option_contracts (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, asset_id INTEGER NOT NULL, code TEXT NOT NULL, option_type TEXT NOT NULL, strike_price NUMERIC NOT NULL, expiration_date TEXT NOT NULL, contract_multiplier INTEGER NOT NULL DEFAULT 100, status TEXT NOT NULL DEFAULT 'ACTIVE', FOREIGN KEY(user_id) REFERENCES users(id), FOREIGN KEY(asset_id) REFERENCES assets(id))");
         $this->pdo->exec("INSERT INTO users (username,password_hash) VALUES ('owner','hash')");
+        $this->pdo->exec("INSERT INTO users (username,password_hash) VALUES ('other','hash-2')");
         $this->pdo->exec("INSERT INTO assets (user_id,symbol,name) VALUES (1,'PETR4','Petrobras')");
         $this->pdo->exec("INSERT INTO option_contracts (user_id,asset_id,code,option_type,strike_price,expiration_date,contract_multiplier) VALUES (1,1,'PETR4C','CALL',10,'2027-01-15',100)");
         require_once dirname(__DIR__, 2) . '/database/migrations/20261023_000003_create_operations_and_positions.php';
@@ -55,6 +56,16 @@ final class OperationServiceTest extends TestCase
         self::assertSame(1, count($this->service->positions(1)));
         self::assertSame(3, $this->service->positions(1)[0]['open_quantity']);
     }    
+
+    public function testUsersCanUseSharedContractsButPositionsRemainIsolated(): void
+    {
+        $result = $this->service->register(2, ['option_contract_id'=>1,'side'=>'BUY','quantity'=>2,'unit_price'=>10,'operation_kind'=>'OPEN']);
+
+        self::assertTrue($result['success']);
+        self::assertSame([], $this->service->positions(1));
+        self::assertSame(2, $this->service->positions(2)[0]['open_quantity']);
+    }
+
     public function testReversalClosesCurrentPositionAndOpensInverseRemainder(): void
     {
         $this->service->register(1, ['option_contract_id'=>1,'side'=>'BUY','quantity'=>3,'unit_price'=>10,'operation_kind'=>'OPEN']);

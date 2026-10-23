@@ -74,6 +74,20 @@ final class FinancialRegistrationTest extends TestCase
             );
         SQL);
 
+        $this->pdo->exec(<<<'SQL'
+            CREATE TABLE strategies (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                name VARCHAR(120) NOT NULL,
+                description TEXT NULL,
+                legs TEXT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        SQL);
+
         $this->service = new FinancialRegistrationService(new FinancialRegistrationRepository($this->pdo), $this->pdo);
     }
 
@@ -86,7 +100,7 @@ final class FinancialRegistrationTest extends TestCase
         $this->pdo->exec("INSERT INTO option_contracts (user_id, asset_id, code, option_type, strike_price, expiration_date) VALUES (1, 999, 'PETR2201C', 'CALL', 25.50, '2027-01-15')");
     }
 
-    public function testUserCanOnlyListHisOwnFinancialRecords(): void
+    public function testFinancialMasterDataIsSharedBetweenUsers(): void
     {
         $this->pdo->exec("INSERT INTO users (username, password_hash) VALUES ('owner', 'hash')");
         $this->pdo->exec("INSERT INTO users (username, password_hash) VALUES ('other', 'hash-2')");
@@ -97,9 +111,22 @@ final class FinancialRegistrationTest extends TestCase
             'asset_type' => 'STOCK',
             'status' => 'ACTIVE',
         ]);
+        $contract = $this->service->save('option_contracts', 1, [
+            'asset_id' => $created['data']['id'],
+            'code' => 'PETR3C27',
+            'option_type' => 'CALL',
+            'strike_price' => 25.5,
+            'expiration_date' => '2027-01-15',
+        ]);
+        $strategy = $this->service->save('strategies', 1, ['name' => 'Compra coberta']);
 
         $this->assertTrue($created['success']);
-        $this->assertSame([], $this->service->list('assets', 2));
+        $this->assertTrue($contract['success']);
+        $this->assertTrue($strategy['success']);
+        $this->assertCount(1, $this->service->list('assets', 2));
+        $this->assertCount(1, $this->service->list('option_contracts', 2));
+        $this->assertCount(1, $this->service->list('strategies', 2));
+        $this->assertNotNull($this->service->get('assets', 2, (int) $created['data']['id']));
         $this->assertCount(1, $this->service->list('assets', 1));
     }
 }

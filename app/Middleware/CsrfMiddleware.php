@@ -16,7 +16,7 @@ final class CsrfMiddleware
             return true;
         }
 
-        $token = Request::input('_csrf_token', '');
+        $token = Request::input('_csrf_token', Request::input('_csrf', ''));
         if (!is_string($token) || !SessionManager::validateCsrf($token)) {
             return false;
         }

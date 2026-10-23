@@ -6,7 +6,7 @@ namespace App\Repositories;
 
 use PDO;
 
-/** User-scoped persistence for financial master-data records. */
+/** Shared financial master data with creator-scoped updates. */
 final class FinancialRegistrationRepository
 {
     private const TABLES = [
@@ -20,15 +20,22 @@ final class FinancialRegistrationRepository
     public function all(string $resource, int $userId, bool $includeInactive = true): array
     {
         $table = $this->table($resource);
-        $sql = "SELECT * FROM {$table} WHERE user_id = :user_id";
-        if (!$includeInactive) $sql .= " AND status = 'ACTIVE'";
+        $sql = "SELECT * FROM {$table}";
+        if (!$includeInactive) $sql .= " WHERE status = 'ACTIVE'";
         $sql .= ' ORDER BY id DESC';
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute(['user_id' => $userId]);
+        $stmt = $this->pdo->query($sql);
         return $stmt->fetchAll();
     }
 
     public function find(string $resource, int $userId, int $id): ?array
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM ' . $this->table($resource) . ' WHERE id = :id');
+        $stmt->execute(['id' => $id]);
+        $record = $stmt->fetch();
+        return $record === false ? null : $record;
+    }
+
+    public function findOwned(string $resource, int $userId, int $id): ?array
     {
         $stmt = $this->pdo->prepare('SELECT * FROM ' . $this->table($resource) . ' WHERE user_id = :user_id AND id = :id');
         $stmt->execute(['user_id' => $userId, 'id' => $id]);

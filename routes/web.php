@@ -5,11 +5,17 @@ declare(strict_types=1);
 use App\Controllers\AuthController;
 use App\Controllers\DashboardController;
 use App\Controllers\HomeController;
+use App\Controllers\RegistryController;
 use App\Controllers\UserManagementController;
 
 return [
     ['GET', '/', [HomeController::class, 'index']],
     ['GET', '/health', [HomeController::class, 'health']],
+    ['GET', '/registros', [RegistryController::class, 'index']],
+    ['POST', '/registros/ativos', [RegistryController::class, 'storeAsset']],
+    ['POST', '/registros/contratos', [RegistryController::class, 'storeContract']],
+    ['POST', '/registros/estrategias', [RegistryController::class, 'storeStrategy']],
+    ['POST', '/registros/operacoes', [RegistryController::class, 'storeOperation']],
     ['GET', '/login', [AuthController::class, 'loginPage']],
     ['POST', '/login', [AuthController::class, 'login']],
     ['POST', '/logout', [AuthController::class, 'logout']],

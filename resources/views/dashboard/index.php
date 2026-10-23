@@ -86,6 +86,7 @@
         <div class="brand">Registro de Operações com Opções</div>
         <div class="actions">
             <span>Olá, <?php echo htmlspecialchars((string) ($user['username'] ?? 'Usuário'), ENT_QUOTES, 'UTF-8'); ?></span>
+            <a href="/registros" style="color:white;text-decoration:none">Registros</a>
             <?php if (($user['profile'] ?? 'USER') === 'ADMIN'): ?>
                 <a href="/admin/users" style="color:white;text-decoration:none">Gerenciar usuários</a>
             <?php endif; ?>
@@ -100,7 +101,7 @@
     <aside class="sidebar" aria-label="Navegação principal">
         <div class="side-label">Workspace</div>
         <nav class="side-nav">
-            <a href="#overview" aria-current="page">▦ Visão geral</a><a href="#positions">▤ Posições</a><a href="#lots">≡ Lotes em aberto</a><a href="#calculators">∑ Calculadoras</a>
+            <a href="#overview" aria-current="page">▦ Visão geral</a><a href="#positions">▤ Posições</a><a href="#lots">≡ Lotes em aberto</a><a href="#calculators">∑ Calculadoras</a><a href="/registros">▣ Registros</a>
         </nav>
     </aside>
     <main class="workspace">

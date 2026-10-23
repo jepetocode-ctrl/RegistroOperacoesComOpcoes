@@ -32,17 +32,17 @@ final class RolloverService
             if ((int)$source['option_contract_id'] !== $closeContractId) return $this->reject(['closing_contract_id'=>'O contrato de encerramento deve corresponder à operação de origem.']);
             if ($closeContractId === $openContractId) return $this->reject(['opening_contract_id'=>'A rolagem exige contrato de abertura diferente do contrato encerrado.']);
 
-            $q = $this->pdo->prepare('SELECT id, contract_multiplier FROM option_contracts WHERE user_id = :user_id AND status = :status AND id IN (:close_id, :open_id)');
-            $q->execute(['user_id'=>$userId, 'status'=>'ACTIVE', 'close_id'=>$closeContractId, 'open_id'=>$openContractId]);
+            $q = $this->pdo->prepare('SELECT id, contract_multiplier FROM option_contracts WHERE status = :status AND id IN (:close_id, :open_id)');
+            $q->execute(['status'=>'ACTIVE', 'close_id'=>$closeContractId, 'open_id'=>$openContractId]);
             $rows = $q->fetchAll(PDO::FETCH_ASSOC);
-            if (count($rows) !== 2) return $this->reject(['contract'=>'Os dois contratos devem existir, estar ativos e pertencer ao usuário.']);
+            if (count($rows) !== 2) return $this->reject(['contract'=>'Os dois contratos devem existir e estar ativos.']);
             $multipliers = [];
             foreach ($rows as $row) $multipliers[(int)$row['id']] = (int)$row['contract_multiplier'];
 
             if ($strategyId !== null) {
-                $q = $this->pdo->prepare('SELECT id FROM strategies WHERE id = :id AND user_id = :user_id');
-                $q->execute(['id'=>$strategyId, 'user_id'=>$userId]);
-                if (!$q->fetchColumn()) return $this->reject(['strategy_id'=>'Estratégia inexistente ou de outro usuário.']);
+                $q = $this->pdo->prepare('SELECT id FROM strategies WHERE id = :id');
+                $q->execute(['id'=>$strategyId]);
+                if (!$q->fetchColumn()) return $this->reject(['strategy_id'=>'Estratégia inexistente.']);
             } else {
                 $strategyId = $source['strategy_id'] === null ? null : (int)$source['strategy_id'];
             }
