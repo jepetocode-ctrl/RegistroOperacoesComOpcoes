@@ -61,7 +61,7 @@ Avançar para próxima etapa funcional com foco em integração de interface, re
 - Modificada `resources/views/dashboard/index.php` para adicionar abas Black-Scholes-Merton e strike reverso na dashboard autenticada.
 - A tela permite editar os parâmetros de preço do ativo, strike (Black-Scholes), prazo, volatilidade, taxa livre de risco, dividend yield e preço-alvo (strike reverso).
 - A precificação contempla call/put europeia, prazo zero e volatilidade zero. O strike reverso usa busca por bisseção e informa falhas de solução; a grade de strikes listados é opcional, explicitamente fornecida pelo usuário e separada do strike teórico.
-- **Pendente crítico:** o cálculo está temporariamente inline em JavaScript na view, não integrado ao motor TypeScript. Os caminhos TypeScript candidatos não foram encontrados e `package.json` não configura compilação TypeScript. Também não foi possível executar testes locais através do conector GitHub.
+- **Pendente crítico:** o cálculo está temporariamente inline em JavaScript na view, não integrado ao motor TypeScript. A árvore do repositório contém `src/financial-engine/`, com `package.json`, `tsconfig.json` e testes TypeScript; o pacote raiz não configura esse build. Ainda é necessário executar `npm test` dentro de `src/financial-engine` no checkout real e integrar a view ao artefato compilado.
 - Não há evidência de teste numérico automatizado nem de verificação manual no navegador. Etapa 7 permanece em andamento.
 
 ### Próxima ação recomendada para Etapa 7
