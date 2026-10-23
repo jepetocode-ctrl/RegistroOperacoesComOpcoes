@@ -2,62 +2,35 @@
 
 ## Etapa atual
 
-Etapa 2 - Autenticação e segurança em andamento.
+Etapa 4 — Cadastros e banco de dados financeiro: implementação inicial realizada; validação automatizada ainda pendente.
 
 ## Última etapa concluída
 
-Etapa 1: bootstrap, configuração, migração base e verificação de inicialização local.
+Etapa 3 — motor financeiro TypeScript presente no repositório com testes unitários. A documentação anterior estava desatualizada em relação à autenticação existente no código; autenticação possui controladores, sessão e testes, mas requer revisão integral dos critérios de segurança antes de ser declarada concluída.
 
-## Funcionalidades implementadas
+## Implementado nesta etapa
 
-- Estrutura base do projeto em camadas.
-- Configuração do Composer e do PHPUnit.
-- Documentação inicial em `docs/`.
-- Arquivos de ambiente com `.env.example` e `.env` locais.
-- Front controller e roteamento mínimo.
-- Arquitetura inicial e migração base do banco.
-- Docker Compose para PostgreSQL local.
-- Verificação de boot da aplicação e endpoints HTTP.
+- Migração para ativos, contratos de opções e estratégias.
+- Repositório com consultas e mutações sempre escopadas por usuário.
+- Serviço de aplicação e validações de payload.
+- Endpoints JSON para listar, consultar, criar e atualizar cadastros.
+- Desativação/reativação lógica por status.
+- Verificação de que um contrato só referencia ativo pertencente ao mesmo usuário.
+- Documentação inicial dos endpoints.
 
-## Funcionalidades incompletas
+## Verificação
 
-- Autenticação e autorização.
-- Módulos financeiros completos.
-- Cadastros e operações.
-- Dashboard e interfaces de negócio.
+Não foi possível executar PHPUnit, migrações ou testes HTTP nesta sessão: o acesso disponível permitiu inspecionar e alterar arquivos no GitHub, mas não disponibilizou um checkout executável do projeto. Nenhum teste é declarado como aprovado nesta alteração.
 
-## Testes executados
+## Riscos e pendências conhecidas
 
-- `./vendor/bin/phpunit --colors=never` -> OK (1 teste, 1 assertion).
-- `curl -sS -D - http://127.0.0.1:8000/health` -> HTTP 200 OK.
-- `curl -sS http://127.0.0.1:8000/` -> homepage entregue com sucesso.
+- Revisar proteção CSRF para métodos de escrita na API de cadastros.
+- Executar migrações e testes em SQLite e PostgreSQL.
+- Adicionar testes de integração para isolamento entre usuários, constraints, edição e desativação.
+- Rever a ativação de foreign keys no SQLite e tratamento de datas/JSON entre drivers.
+- A interface de cadastros ainda não foi implementada.
+- Verificar que o middleware de autenticação bloqueia corretamente usuários obrigados a trocar senha.
 
-## Falhas conhecidas
+## Próximo passo recomendado
 
-- A instalação local atual não possui o driver PDO PostgreSQL habilitado; o sistema usa fallback para SQLite em desenvolvimento, mantendo a arquitetura principal em PostgreSQL.
-- Ainda não há autenticação funcional.
-- O motor financeiro TypeScript ainda não foi implementado.
-
-## Arquivos principais alterados
-
-- `README.md`
-- `composer.json`
-- `docker-compose.yml`
-- `config/app.php`
-- `config/database.php`
-- `public/index.php`
-- `routes/web.php`
-- `scripts/run-migrations.php`
-- `database/migrations/20261023_000001_create_app_base_tables.php`
-
-## Migrações aplicadas
-
-- `20261023_000001_create_app_base_tables`
-
-## Dependências adicionadas
-
-- `phpunit/phpunit`
-
-## Próxima etapa recomendada
-
-Etapa 2 - Autenticação e segurança.
+Adicionar testes automatizados de repositório/serviço/API, executar toda a suíte em ambiente com dependências instaladas e corrigir eventuais diferenças de driver antes de considerar a Etapa 4 concluída.
