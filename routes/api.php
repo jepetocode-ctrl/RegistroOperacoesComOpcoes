@@ -6,6 +6,7 @@ use App\Controllers\AuthController;
 use App\Controllers\FinancialRegistrationController;
 use App\Controllers\HomeController;
 use App\Controllers\OperationController;
+use App\Controllers\RolloverController;
 
 return [
     ['GET', '/api/status', [HomeController::class, 'apiStatus']],
@@ -33,4 +34,7 @@ return [
     ['POST', '/api/quotes', [OperationController::class, 'handle']],
     ['GET', '/api/positions', [OperationController::class, 'handle']],
     ['GET', '/api/positions/{id}', [OperationController::class, 'handle']],
+    ['GET', '/api/rollovers', [RolloverController::class, 'handle']],
+    ['GET', '/api/rollovers/{uuid}', [RolloverController::class, 'handle']],
+    ['POST', '/api/rollovers', [RolloverController::class, 'handle']],
 ];
