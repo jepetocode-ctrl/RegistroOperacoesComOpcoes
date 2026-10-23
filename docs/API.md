@@ -26,7 +26,7 @@ Exemplo de operação:
 
 Campos obrigatórios: option_contract_id, side (BUY/SELL), quantity (inteiro positivo), unit_price (não negativo). costs é opcional e não negativo. operation_kind aceita TRADE, OPEN, CLOSE, PARTIAL_CLOSE, REVERSAL ou ADJUSTMENT.
 
-CLOSE e PARTIAL_CLOSE exigem quantidade integralmente disponível. REVERSAL exige quantidade igual à posição líquida aberta. Operações ordinárias opostas podem encerrar a posição existente e abrir o excedente no sentido inverso.
+CLOSE e PARTIAL_CLOSE exigem quantidade integralmente disponível. REVERSAL exige operação no sentido contrário e quantidade maior que a posição líquida aberta; a parte necessária encerra a posição e o excedente abre a posição inversa. Operações ordinárias opostas podem encerrar a posição existente e abrir o excedente no sentido inverso.
 
 O fluxo de caixa bruto é -preço × quantidade × multiplicador para BUY e positivo para SELL; custos ficam em campo separado. Resultado realizado é apurado por alocação de encerramentos e desconta custos de entrada/saída atribuídos. Resultado não realizado é null quando não há cotação; com cotação, usa as quantidades abertas e o preço de marcação.
 
