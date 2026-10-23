@@ -39,3 +39,11 @@
 - A Etapa 6 foi validada no checkout atual pela execução de `composer test` e `php scripts/run-migrations.php`.
 - Os testes de rolagem cobrem a transação de encerramento + abertura, o registro do UUID, o histórico e o rollback em falha de gravação.
 - O principal risco que permanece é a concorrência de rolagens simultâneas sobre a mesma operação de origem e a política de alocação de custos em cenários mais complexos.
+
+
+## Calculadoras — decisão provisória (Etapa 7)
+
+- A tela da dashboard foi estendida com formulários Black-Scholes-Merton e strike reverso.
+- Strikes listados só podem ser comparados contra uma grade explicitamente fornecida; não inferir listagem, cotação ou liquidez.
+- O cálculo está temporariamente inline na view para viabilizar o primeiro fluxo visual. Isso não altera a decisão arquitetural de manter regras financeiras no motor TypeScript: extrair a implementação para o motor tipado é uma pendência obrigatória antes de considerar a etapa concluída.
+- As aproximações numéricas e casos-limite precisam de testes de referência independentes antes de uso financeiro confiável.
