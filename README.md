@@ -4,12 +4,14 @@ Sistema para registro das operações realizadas com opções na bolsa de valore
 
 ## Visão geral
 
-Este projeto foi estruturado para evoluir em etapas, preservando separação entre apresentação, controladores HTTP, serviços de aplicação, regras de negócio, repositórios, banco de dados, motor financeiro TypeScript, testes e documentação.
+Este projeto evolui por etapas, preservando a separação entre apresentação, controladores HTTP, serviços de aplicação, repositórios, banco de dados, motor financeiro TypeScript, testes e documentação.
 
-## Etapas implementadas
+## Etapas registradas
 
 - Etapa 0: planejamento e documentação.
 - Etapa 1: fundação técnica, configuração, migrações e inicialização local.
+- Etapa 5: implementação inicial de operações e posições; validação automatizada e compatibilidade com bancos continuam pendentes.
+- Etapa 6: implementação inicial de rolagens adicionada; execução dos testes e validação PostgreSQL/SQLite pendentes.
 
 ## Estrutura principal
 
@@ -26,61 +28,41 @@ Este projeto foi estruturado para evoluir em etapas, preservando separação ent
 ├── storage/
 ├── tests/
 ├── .env.example
-├── .gitignore
 ├── composer.json
 ├── docker-compose.yml
 ├── Dockerfile
 ├── package.json
 ├── phpunit.xml
-├── README.md
-└── ...
+└── README.md
 ```
 
 ## Requisitos
 
 - PHP 8.3+
 - Composer 2+
-- Docker + Docker Compose (opcional para banco PostgreSQL local)
-- PostgreSQL 16 (via container local recomendado)
+- Docker + Docker Compose (opcional para PostgreSQL local)
+- PostgreSQL 16
 
-> Nota: no ambiente atual, a extensão PDO PostgreSQL não está habilitada no runtime local. O projeto usa fallback para SQLite em desenvolvimento para permitir a aplicação iniciar e os testes executarem sem quebrar a arquitetura principal baseada em PostgreSQL.
+O ambiente local pode usar SQLite como fallback quando PDO PostgreSQL não estiver disponível. PostgreSQL continua sendo o banco principal.
 
-## Instalação
+## Instalação e execução
 
 ```bash
 composer install
 cp .env.example .env
-```
-
-Se for usar o banco local em container:
-
-```bash
-docker compose up -d postgres
-```
-
-Para usar PostgreSQL explicitamente no ambiente com a extensão habilitada, ajuste `DB_CONNECTION=pgsql` em `.env`.
-
-## Execução local
-
-```bash
+composer test
+php scripts/run-migrations.php
 php -S 0.0.0.0:8000 -t public
 ```
 
-Acesse:
+## API de rolagens
 
-- http://localhost:8000/
-- http://localhost:8000/health
+- `POST /api/rollovers`: registra encerramento e abertura numa única transação. Requer sessão autenticada e token CSRF.
+- `GET /api/rollovers`: lista o histórico de rolagens do usuário autenticado.
+- `GET /api/rollovers/{uuid}`: consulta uma rolagem pelo identificador único.
 
-## Testes
-
-```bash
-composer test
-```
-
-## Trabalho em andamento
-
-A próxima etapa é a autenticação e segurança, conforme o plano do projeto.
+O registro guarda as operações de origem e as duas pernas, estratégia, custos e fluxo líquido. Crédito/débito líquido representa fluxo de caixa e não é classificado automaticamente como lucro.
 
 ## Continuidade
 
-A documentação em `docs/` deve ser consultada antes de qualquer alteração estrutural.
+Consulte `docs/ARCHITECTURE.md`, `docs/PROJECT_STATUS.md`, `docs/NEXT_STEPS.md` e `docs/DECISIONS.md` antes de mudanças estruturais. A implementação da Etapa 6 ainda não deve ser considerada validada até que a suíte e as migrações sejam executadas.
