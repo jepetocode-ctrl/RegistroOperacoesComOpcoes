@@ -111,12 +111,46 @@ final class OperationService
                 $costs += (float)$row['costs'];
             }
             foreach ($opens as $open) $net += ($open['side'] === 'BUY' ? 1 : -1) * $open['open_quantity'];
+            $quote = $this->repository->latestQuote($userId, (int)$id);
+            $unrealized = null;
+            if ($quote !== null) {
+                $unrealized = 0.0;
+                foreach ($opens as $open) {
+                    $direction = $open['side'] === 'BUY' ? 1 : -1;
+                    $unrealized += (((float)$quote['quote_price'] - (float)$open['unit_price']) * $direction * (int)$open['open_quantity'] * $multiplier);
+                    $unrealized -= (float)$open['costs'] * ((int)$open['open_quantity'] / max(1, (int)$open['quantity']));
+                }
+                $unrealized = round($unrealized, 6);
+            }
             $stmt = $this->pdo->prepare('SELECT COALESCE(SUM(realized_result),0) FROM operation_closures WHERE user_id = :user_id AND closing_operation_id IN (SELECT id FROM operations WHERE user_id = :user_id2 AND option_contract_id = :contract_id)');
             $stmt->execute(['user_id' => $userId, 'user_id2' => $userId, 'contract_id' => $id]);
             $realized = (float)$stmt->fetchColumn();
-            $positions[] = ['option_contract_id' => (int)$id, 'open_quantity' => $net, 'gross_cash_flow' => round($flow, 6), 'costs' => round($costs, 6), 'realized_result' => round($realized, 6), 'open_lots' => $opens];
+            $positions[] = ['option_contract_id' => (int)$id, 'open_quantity' => $net, 'gross_cash_flow' => round($flow, 6), 'costs' => round($costs, 6), 'realized_result' => round($realized, 6), 'unrealized_result' => $unrealized, 'latest_quote' => $quote, 'open_lots' => $opens];
         }
         return $positions;
+    }
+
+    public function recordQuote(int $userId, array $input): array
+    {
+        $contractId = filter_var($input['option_contract_id'] ?? null, FILTER_VALIDATE_INT);
+        $price = $input['quote_price'] ?? null;
+        if ($contractId === false || $contractId === null || $contractId < 1 || !is_numeric($price) || (float)$price < 0) {
+            return ['success' => false, 'status' => 422, 'errors' => ['quote' => 'Contrato e cotação não negativos são obrigatórios.']];
+        }
+        $quotedAt = (string)($input['quoted_at'] ?? date('Y-m-d H:i:s'));
+        if (strtotime($quotedAt) === false) return ['success' => false, 'status' => 422, 'errors' => ['quoted_at' => 'Data/hora inválida.']];
+        $stmt = $this->pdo->prepare('SELECT id FROM option_contracts WHERE id = :id AND user_id = :user_id');
+        $stmt->execute(['id' => $contractId, 'user_id' => $userId]);
+        if (!$stmt->fetchColumn()) return ['success' => false, 'status' => 422, 'errors' => ['option_contract_id' => 'Contrato inexistente ou de outro usuário.']];
+        $this->pdo->beginTransaction();
+        try {
+            $id = $this->repository->insertQuote($userId, (int)$contractId, (float)$price, $quotedAt);
+            $this->pdo->commit();
+            return ['success' => true, 'status' => 201, 'data' => ['id' => $id, 'option_contract_id' => (int)$contractId, 'quote_price' => (float)$price, 'quoted_at' => $quotedAt]];
+        } catch (Throwable $e) {
+            if ($this->pdo->inTransaction()) $this->pdo->rollBack();
+            throw $e;
+        }
     }
 
     public function history(int $userId, int $operationId): array
@@ -141,6 +175,13 @@ final class OperationService
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $closure) {
             $key = (int)$closure['opening_operation_id'];
             if (isset($openings[$key])) $openings[$key]['open_quantity'] -= (int)$closure['quantity'];
+        }
+        // A closing execution is not itself a new opening lot for the portion allocated to closes.
+        $closing = $this->pdo->prepare('SELECT closing_operation_id, SUM(quantity) AS closed_quantity FROM operation_closures WHERE user_id = :user_id AND closing_operation_id IN (' . ($ids ? implode(',', array_map('intval', $ids)) : 'NULL') . ') GROUP BY closing_operation_id');
+        $closing->execute(['user_id' => $userId]);
+        foreach ($closing->fetchAll(PDO::FETCH_ASSOC) as $closure) {
+            $key = (int)$closure['closing_operation_id'];
+            if (isset($openings[$key])) $openings[$key]['open_quantity'] -= (int)$closure['closed_quantity'];
         }
         return array_values(array_filter($openings, static fn(array $row): bool => $row['open_quantity'] > 0));
     }
