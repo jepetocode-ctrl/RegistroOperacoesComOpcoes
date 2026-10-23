@@ -2,35 +2,57 @@
 
 ## Etapa atual
 
-Etapa 4 — Cadastros e banco de dados financeiro: implementação inicial realizada; validação automatizada ainda pendente.
+Etapa 5 — Operações e posições: implementação inicial registrada; execução dos testes ainda pendente.
 
-## Última etapa concluída
+## Base existente
 
-Etapa 3 — motor financeiro TypeScript presente no repositório com testes unitários. A documentação anterior estava desatualizada em relação à autenticação existente no código; autenticação possui controladores, sessão e testes, mas requer revisão integral dos critérios de segurança antes de ser declarada concluída.
+- Autenticação/sessão PHP e endpoints de cadastros financeiros.
+- Migrações para ativos, contratos de opções e estratégias.
+- Motor financeiro TypeScript separado do backend.
 
-## Implementado nesta etapa
+## Implementado na Etapa 5
 
-- Migração para ativos, contratos de opções e estratégias.
-- Repositório com consultas e mutações sempre escopadas por usuário.
-- Serviço de aplicação e validações de payload.
-- Endpoints JSON para listar, consultar, criar e atualizar cadastros.
-- Desativação/reativação lógica por status.
-- Verificação de que um contrato só referencia ativo pertencente ao mesmo usuário.
-- Documentação inicial dos endpoints.
+- Ledger de operações de compra/venda com quantidade, preço, custos, fluxo financeiro bruto e data/hora.
+- Alocações de encerramento por operação de abertura, com cálculo de resultado realizado líquido dos custos de entrada/saída alocados.
+- Validação de encerramento e encerramento parcial para não ultrapassar posição disponível.
+- Inversão explícita validada para quantidade igual à posição líquida atual.
+- Consulta de posições abertas, fluxo financeiro, custos, resultado realizado e resultado não realizado quando existe cotação.
+- Histórico append-only de criação da operação.
+- Registro de cotações por contrato.
+- Persistência transacional de operação, alocações de encerramento e histórico.
+- Rotas API autenticadas e protegidas por CSRF para mutações.
+
+## Arquivos adicionados
+
+- database/migrations/20261023_000003_create_operations_and_positions.php
+- app/Repositories/OperationRepository.php
+- app/Services/OperationService.php
+- app/Controllers/OperationController.php
+- tests/Feature/OperationServiceTest.php
+
+## Rotas adicionadas
+
+- GET /api/operations
+- POST /api/operations
+- GET /api/operations/{id}/history
+- GET /api/positions
+- GET /api/positions/{id}
+- POST /api/quotes
+
+As chamadas exigem sessão autenticada; POST exige token CSRF em _csrf_token.
 
 ## Verificação
 
-Não foi possível executar PHPUnit, migrações ou testes HTTP nesta sessão: o acesso disponível permitiu inspecionar e alterar arquivos no GitHub, mas não disponibilizou um checkout executável do projeto. Nenhum teste é declarado como aprovado nesta alteração.
+A suíte PHPUnit e as migrações não foram executadas nesta sessão porque não havia checkout local executável disponível. O teste de regressão foi adicionado, mas ainda não foi executado. Não declarar a etapa concluída até rodar os testes e corrigir eventuais diferenças entre PostgreSQL e SQLite.
 
-## Riscos e pendências conhecidas
+## Pendências e riscos
 
-- Revisar proteção CSRF para métodos de escrita na API de cadastros.
-- Executar migrações e testes em SQLite e PostgreSQL.
-- Adicionar testes de integração para isolamento entre usuários, constraints, edição e desativação.
-- Rever a ativação de foreign keys no SQLite e tratamento de datas/JSON entre drivers.
-- A interface de cadastros ainda não foi implementada.
-- Verificar que o middleware de autenticação bloqueia corretamente usuários obrigados a trocar senha.
+- Executar teste de abertura, fechamento parcial, fechamento excedente, inversão, cotação e isolamento por usuário.
+- Validar migração e comportamento no PostgreSQL real e SQLite.
+- Verificar arredondamento e alocação de custos em múltiplas aberturas/encerramentos.
+- A trilha atual registra criação; edição de operação não é exposta, preservando o ledger append-only.
+- Definir política para correção/cancelamento de operações já registradas: preferir lançamento compensatório em vez de alterar registros financeiros históricos.
 
 ## Próximo passo recomendado
 
-Adicionar testes automatizados de repositório/serviço/API, executar toda a suíte em ambiente com dependências instaladas e corrigir eventuais diferenças de driver antes de considerar a Etapa 4 concluída.
+Executar composer test e php scripts/run-migrations.php, corrigir qualquer falha, e ampliar testes para inversões, cotação e integridade transacional.
