@@ -80,6 +80,7 @@ final class OperationService
                 $closeSign = $side === 'BUY' ? 1 : -1;
                 $realized = round(($price - (float)$opening['unit_price']) * $item['quantity'] * $multiplier * $openSign, 6);
                 $realized -= round($costs * ($item['quantity'] / $quantity), 6);
+                $realized -= round((float)$opening['costs'] * ($item['quantity'] / max(1, (int)$opening['quantity'])), 6);
                 $this->repository->insertClosure([
                     'user_id' => $userId, 'opening_operation_id' => $opening['id'],
                     'closing_operation_id' => $id, 'quantity' => $item['quantity'], 'realized_result' => $realized,
