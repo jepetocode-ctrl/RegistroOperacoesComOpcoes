@@ -41,7 +41,7 @@ Foi adicionada uma primeira interface em `resources/views/dashboard/index.php` c
 4. Testar no navegador a validação dos campos, mensagens acessíveis e responsividade.
 5. Executar `composer test`, testes do motor e migrações aplicáveis no checkout real; registrar apenas resultados efetivamente observados.
 
-A implementação atual é parcial: o motor TypeScript não foi localizado por caminhos candidatos e não houve execução de testes nesta sessão. Não marcar Etapa 7 como concluída.
+A implementação atual é parcial. O motor TypeScript está em `src/financial-engine/` e possui scripts `build` e `test`, mas não houve execução dos testes nesta sessão nem integração da view com o artefato compilado. Não marcar Etapa 7 como concluída.
 
 
 ## Etapa 8 — Interface e dashboard (em andamento)
