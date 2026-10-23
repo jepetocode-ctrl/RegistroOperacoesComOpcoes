@@ -101,6 +101,9 @@ final class OperationService
         foreach ($operations as $op) $contracts[(int)$op['option_contract_id']][] = $op;
         $positions = [];
         foreach ($contracts as $id => $rows) {
+            $contractStmt = $this->pdo->prepare('SELECT contract_multiplier FROM option_contracts WHERE id = :id AND user_id = :user_id');
+            $contractStmt->execute(['id' => (int)$id, 'user_id' => $userId]);
+            $multiplier = (int)($contractStmt->fetchColumn() ?: 1);
             $opens = $this->openPositions($userId, (int)$id);
             $net = 0;
             $realized = 0.0;
