@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Organizar a aplicação em camadas para manter a separação de responsabilidades e permitir continuidade por diferentes IAs sem reescrever módulos existentes.
+Organizar a aplicação em camadas para manter a separação de responsabilidades e permitir continuidade sem reescrever módulos existentes.
 
 ## Camadas
 
@@ -23,10 +23,13 @@ Organizar a aplicação em camadas para manter a separação de responsabilidade
 ## Convenções
 
 - PHP 8.3+.
-- Composer PSR-4 com namespace `App\`.
-- Banco principal PostgreSQL, sem usar recursos exclusivos em excesso.
-- Todas as regras financeiras permanecem fora dos controladores.
-- O código executável não deve ser substituído por pseudocódigo.
+- Composer PSR-4 com namespace `App\\`.
+- Banco principal PostgreSQL, com compatibilidade SQLite para desenvolvimento/testes.
+- Regras financeiras permanecem fora dos controladores.
+- Ledger de operações é append-only; histórico financeiro não deve ser apagado ou reescrito.
+- A gravação das duas pernas de uma rolagem, alocação de encerramento, identidade da rolagem e histórico ocorre na mesma transação PDO.
+- UUID identifica a rolagem; operações de encerramento e abertura mantêm IDs próprios e referência entre si.
+- Fluxo de caixa líquido e custos são métricas separadas do resultado realizado.
 
 ## Padrões de erro
 
@@ -36,4 +39,4 @@ Organizar a aplicação em camadas para manter a separação de responsabilidade
 
 ## Continuidade
 
-Os arquivos de documentação, configuração e estrutura desta pasta devem ser usados como referência para a próxima etapa.
+Consulte `docs/PROJECT_STATUS.md` e `docs/NEXT_STEPS.md` antes de alterações estruturais. A Etapa 6 está implementada inicialmente, mas depende de execução de testes e validação PostgreSQL/SQLite.
