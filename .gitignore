@@ -1,0 +1,10 @@
+vendor/
+.env
+.env.local
+.phpunit.result.cache
+coverage/
+storage/*.sqlite
+storage/*.db
+storage/logs/*.log
+.DS_Store
+node_modules/

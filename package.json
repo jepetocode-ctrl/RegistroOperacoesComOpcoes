@@ -1,0 +1,9 @@
+{
+  "name": "registro-operacoes-com-opcoes",
+  "private": true,
+  "scripts": {
+    "dev": "php -S 0.0.0.0:8000 -t public",
+    "test": "composer test",
+    "migrate": "php scripts/run-migrations.php"
+  }
+}

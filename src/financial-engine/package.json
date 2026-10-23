@@ -1,0 +1,8 @@
+{
+  "name": "financial-engine",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "echo \"No tests yet for the financial engine.\""
+  }
+}
