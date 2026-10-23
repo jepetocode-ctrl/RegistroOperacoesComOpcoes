@@ -54,5 +54,14 @@ final class OperationServiceTest extends TestCase
         self::assertSame(422, $result['status']);
         self::assertSame(1, count($this->service->positions(1)));
         self::assertSame(3, $this->service->positions(1)[0]['open_quantity']);
+    }    
+    public function testReversalClosesCurrentPositionAndOpensInverseRemainder(): void
+    {
+        $this->service->register(1, ['option_contract_id'=>1,'side'=>'BUY','quantity'=>3,'unit_price'=>10,'operation_kind'=>'OPEN']);
+        $result = $this->service->register(1, ['option_contract_id'=>1,'side'=>'SELL','quantity'=>5,'unit_price'=>11,'operation_kind'=>'REVERSAL']);
+        self::assertTrue($result['success']);
+        $positions = $this->service->positions(1);
+        self::assertSame(-2, $positions[0]['open_quantity']);
     }
+
 }
