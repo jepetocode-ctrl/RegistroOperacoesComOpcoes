@@ -30,6 +30,7 @@ return [
     ['GET', '/api/operations', [OperationController::class, 'handle']],
     ['POST', '/api/operations', [OperationController::class, 'handle']],
     ['GET', '/api/operations/{id}/history', [OperationController::class, 'handle']],
+    ['POST', '/api/quotes', [OperationController::class, 'handle']],
     ['GET', '/api/positions', [OperationController::class, 'handle']],
     ['GET', '/api/positions/{id}', [OperationController::class, 'handle']],
 ];
