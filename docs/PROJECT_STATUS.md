@@ -54,3 +54,16 @@ Resultado confirmado: `OK (10 tests, 36 assertions)` e migrações até `2026102
 ## Próximo passo recomendado
 
 Avançar para próxima etapa funcional com foco em integração de interface, refinamento de concorrência e eventual política de correção compensatória, mantendo a transação dura e o ledger imutável.
+
+
+## Etapa 7 — Calculadoras (parcial; não declarar concluída)
+
+- Modificada `resources/views/dashboard/index.php` para adicionar abas Black-Scholes-Merton e strike reverso na dashboard autenticada.
+- A tela permite editar os parâmetros de preço do ativo, strike (Black-Scholes), prazo, volatilidade, taxa livre de risco, dividend yield e preço-alvo (strike reverso).
+- A precificação contempla call/put europeia, prazo zero e volatilidade zero. O strike reverso usa busca por bisseção e informa falhas de solução; a grade de strikes listados é opcional, explicitamente fornecida pelo usuário e separada do strike teórico.
+- **Pendente crítico:** o cálculo está temporariamente inline em JavaScript na view, não integrado ao motor TypeScript. Os caminhos TypeScript candidatos não foram encontrados e `package.json` não configura compilação TypeScript. Também não foi possível executar testes locais através do conector GitHub.
+- Não há evidência de teste numérico automatizado nem de verificação manual no navegador. Etapa 7 permanece em andamento.
+
+### Próxima ação recomendada para Etapa 7
+
+Inventariar a árvore real do repositório, localizar o motor TypeScript e sua estratégia de build. Extrair Black-Scholes e strike reverso para esse módulo, acrescentar testes de referência e limites, conectar a view ao artefato efetivamente compilado e executar a suíte PHP e testes do motor no checkout. Verificar também a acessibilidade e erros no navegador.
