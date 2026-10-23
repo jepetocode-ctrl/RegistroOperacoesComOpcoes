@@ -55,7 +55,103 @@ final class OperationServiceTest extends TestCase
         self::assertSame(422, $result['status']);
         self::assertSame(1, count($this->service->positions(1)));
         self::assertSame(3, $this->service->positions(1)[0]['open_quantity']);
-    }    
+    }
+
+    public function testOwnerCanEditAnUnclosedOperationAndTheChangeIsRecorded(): void
+    {
+        $created = $this->service->register(1, ['option_contract_id'=>1,'side'=>'BUY','quantity'=>2,'unit_price'=>10,'operation_kind'=>'OPEN']);
+        $operationId = (int) $created['data']['id'];
+
+        $updated = $this->service->update(1, $operationId, [
+            'side'=>'BUY', 'quantity'=>4, 'unit_price'=>12, 'costs'=>3,
+            'executed_at'=>'2026-10-23 11:30:00', 'operation_kind'=>'OPEN', 'notes'=>'Ajuste',
+        ]);
+
+        self::assertTrue($updated['success']);
+        self::assertSame(4, (int) $updated['data']['quantity']);
+        self::assertSame(-4800.0, (float) $updated['data']['gross_cash_flow']);
+        self::assertSame('UPDATED', $this->service->history(1, $operationId)[1]['action']);
+        self::assertSame(404, $this->service->update(2, $operationId, ['quantity'=>3])['status']);
+    }
+
+    public function testOperationWithClosureCannotBeEdited(): void
+    {
+        $opening = $this->service->register(1, ['option_contract_id'=>1,'side'=>'BUY','quantity'=>5,'unit_price'=>10,'operation_kind'=>'OPEN']);
+        $this->service->register(1, ['option_contract_id'=>1,'side'=>'SELL','quantity'=>2,'unit_price'=>11,'operation_kind'=>'PARTIAL_CLOSE']);
+
+        $result = $this->service->update(1, (int) $opening['data']['id'], ['unit_price'=>12]);
+
+        self::assertFalse($result['success']);
+        self::assertSame(422, $result['status']);
+    }
+
+    public function testPartialCloseCanTargetTheSelectedOpenLot(): void
+    {
+        $first = $this->service->register(1, ['option_contract_id'=>1,'side'=>'BUY','quantity'=>3,'unit_price'=>10,'operation_kind'=>'OPEN']);
+        $second = $this->service->register(1, ['option_contract_id'=>1,'side'=>'BUY','quantity'=>4,'unit_price'=>11,'operation_kind'=>'OPEN']);
+
+        $closed = $this->service->register(1, [
+            'option_contract_id'=>1, 'side'=>'SELL', 'quantity'=>2, 'unit_price'=>12,
+            'operation_kind'=>'PARTIAL_CLOSE', 'reference_operation_id'=>$second['data']['id'],
+        ]);
+
+        self::assertTrue($closed['success']);
+        $lots = $this->service->positions(1)[0]['open_lots'];
+        self::assertSame((int) $first['data']['id'], $lots[0]['id']);
+        self::assertSame(3, $lots[0]['open_quantity']);
+        self::assertSame((int) $second['data']['id'], $lots[1]['id']);
+        self::assertSame(2, $lots[1]['open_quantity']);
+    }
+
+    public function testFullCloseCanStartFromASelectedLotAndCloseTheWholePosition(): void
+    {
+        $first = $this->service->register(1, ['option_contract_id'=>1,'side'=>'BUY','quantity'=>3,'unit_price'=>10,'operation_kind'=>'OPEN']);
+        $second = $this->service->register(1, ['option_contract_id'=>1,'side'=>'BUY','quantity'=>4,'unit_price'=>11,'operation_kind'=>'OPEN']);
+
+        $closed = $this->service->register(1, [
+            'option_contract_id'=>1, 'side'=>'SELL', 'quantity'=>7, 'unit_price'=>12,
+            'operation_kind'=>'CLOSE', 'reference_operation_id'=>$second['data']['id'],
+        ]);
+
+        self::assertTrue($closed['success']);
+        self::assertSame([], $this->service->positions(1)[0]['open_lots']);
+        self::assertNotSame($first['data']['id'], $second['data']['id']);
+    }
+
+    public function testSelectedLotDismantleCanReverseTheRemainingPosition(): void
+    {
+        $first = $this->service->register(1, ['option_contract_id'=>1,'side'=>'BUY','quantity'=>3,'unit_price'=>10,'operation_kind'=>'OPEN']);
+        $second = $this->service->register(1, ['option_contract_id'=>1,'side'=>'BUY','quantity'=>4,'unit_price'=>11,'operation_kind'=>'OPEN']);
+
+        $reversal = $this->service->register(1, [
+            'option_contract_id'=>1, 'side'=>'SELL', 'quantity'=>9, 'unit_price'=>12,
+            'operation_kind'=>'REVERSAL', 'reference_operation_id'=>$second['data']['id'],
+        ]);
+
+        self::assertTrue($reversal['success']);
+        $positions = $this->service->positions(1);
+        self::assertSame(-2, $positions[0]['open_quantity']);
+        self::assertCount(1, $positions[0]['open_lots']);
+        self::assertSame('SELL', $positions[0]['open_lots'][0]['side']);
+        self::assertSame(2, $positions[0]['open_lots'][0]['open_quantity']);
+        self::assertNotSame($first['data']['id'], $second['data']['id']);
+    }
+
+    public function testContractTransactionHistoryIsFilteredByAuthenticatedUser(): void
+    {
+        $this->service->register(1, ['option_contract_id'=>1,'side'=>'BUY','quantity'=>2,'unit_price'=>10,'operation_kind'=>'OPEN']);
+        $this->service->register(1, ['option_contract_id'=>1,'side'=>'SELL','quantity'=>1,'unit_price'=>12,'operation_kind'=>'PARTIAL_CLOSE']);
+        $this->service->register(2, ['option_contract_id'=>1,'side'=>'BUY','quantity'=>4,'unit_price'=>9,'operation_kind'=>'OPEN']);
+
+        $ownerHistory = $this->service->transactionHistory(1, 1);
+        $otherHistory = $this->service->transactionHistory(2, 1);
+
+        self::assertCount(2, $ownerHistory);
+        self::assertCount(1, $otherHistory);
+        self::assertSame(1, (int) $ownerHistory[0]['quantity']);
+        self::assertEqualsWithDelta(200.0, (float) $ownerHistory[0]['realized_result'], 0.000001);
+        self::assertSame(4, (int) $otherHistory[0]['quantity']);
+    }
 
     public function testUsersCanUseSharedContractsButPositionsRemainIsolated(): void
     {

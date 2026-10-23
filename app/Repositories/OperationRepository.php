@@ -21,6 +21,13 @@ final class OperationRepository
         return $stmt->fetchAll();
     }
 
+    public function transactionHistory(int $userId, int $contractId): array
+    {
+        $stmt = $this->pdo->prepare("SELECT o.*, COALESCE((SELECT SUM(c.realized_result) FROM operation_closures c WHERE c.user_id = o.user_id AND c.closing_operation_id = o.id), 0) AS realized_result FROM operations o WHERE o.user_id = :user_id AND o.option_contract_id = :contract_id ORDER BY o.executed_at DESC, o.id DESC");
+        $stmt->execute(['user_id' => $userId, 'contract_id' => $contractId]);
+        return $stmt->fetchAll();
+    }
+
     public function find(int $userId, int $id): ?array
     {
         $stmt = $this->pdo->prepare('SELECT * FROM operations WHERE user_id = :user_id AND id = :id');
@@ -34,6 +41,18 @@ final class OperationRepository
         $stmt = $this->pdo->prepare('INSERT INTO operations (user_id, option_contract_id, strategy_id, side, quantity, unit_price, gross_cash_flow, costs, executed_at, reference_operation_id, operation_kind, notes) VALUES (:user_id, :option_contract_id, :strategy_id, :side, :quantity, :unit_price, :gross_cash_flow, :costs, :executed_at, :reference_operation_id, :operation_kind, :notes)');
         $stmt->execute($data);
         return (int) $this->pdo->lastInsertId();
+    }
+
+    public function update(int $userId, int $id, array $data): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE operations SET strategy_id = :strategy_id, side = :side, quantity = :quantity, unit_price = :unit_price, gross_cash_flow = :gross_cash_flow, costs = :costs, executed_at = :executed_at, operation_kind = :operation_kind, notes = :notes WHERE user_id = :user_id AND id = :id');
+        $stmt->execute([
+            'user_id' => $userId, 'id' => $id, 'strategy_id' => $data['strategy_id'],
+            'side' => $data['side'], 'quantity' => $data['quantity'],
+            'unit_price' => $data['unit_price'], 'gross_cash_flow' => $data['gross_cash_flow'],
+            'costs' => $data['costs'], 'executed_at' => $data['executed_at'],
+            'operation_kind' => $data['operation_kind'], 'notes' => $data['notes'],
+        ]);
     }
 
     public function insertClosure(array $data): void

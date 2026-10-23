@@ -42,18 +42,47 @@ final class OperationService
             $closeQty = 0;
             $allocation = [];
             if ($openQty > 0 && $signedOpen !== 0 && (($signedOpen > 0 && $side === 'SELL') || ($signedOpen < 0 && $side === 'BUY'))) {
-                $closeQty = min($quantity, abs($signedOpen));
-                $remaining = $closeQty;
-                foreach ($openings as $opening) {
-                    if ($remaining <= 0) break;
-                    if ($opening['side'] === $side || $opening['open_quantity'] <= 0) continue;
-                    $take = min($remaining, $opening['open_quantity']);
-                    if ($take > 0) { $allocation[] = ['opening' => $opening, 'quantity' => $take]; $remaining -= $take; }
+                if ($referenceId !== null) {
+                    $selectedOpening = null;
+                    foreach ($openings as $opening) {
+                        if ($opening['id'] === $referenceId && $opening['side'] !== $side) {
+                            $selectedOpening = $opening;
+                            break;
+                        }
+                    }
+                    if ($selectedOpening === null) {
+                        $this->pdo->rollBack();
+                        return ['success' => false, 'status' => 422, 'message' => 'O lote selecionado não pertence a esta posição ou não possui saldo aberto compatível.'];
+                    }
+                    $closeQty = min($quantity, abs($signedOpen));
+                    $remaining = $closeQty;
+                    $take = min($remaining, $selectedOpening['open_quantity']);
+                    $allocation[] = ['opening' => $selectedOpening, 'quantity' => $take];
+                    $remaining -= $take;
+                    foreach ($openings as $opening) {
+                        if ($remaining <= 0) break;
+                        if ($opening['id'] === $referenceId || $opening['side'] === $side || $opening['open_quantity'] <= 0) continue;
+                        $take = min($remaining, $opening['open_quantity']);
+                        if ($take > 0) { $allocation[] = ['opening' => $opening, 'quantity' => $take]; $remaining -= $take; }
+                    }
+                } else {
+                    $closeQty = min($quantity, abs($signedOpen));
+                    $remaining = $closeQty;
+                    foreach ($openings as $opening) {
+                        if ($remaining <= 0) break;
+                        if ($opening['side'] === $side || $opening['open_quantity'] <= 0) continue;
+                        $take = min($remaining, $opening['open_quantity']);
+                        if ($take > 0) { $allocation[] = ['opening' => $opening, 'quantity' => $take]; $remaining -= $take; }
+                    }
                 }
             }
             if (in_array($kind, ['CLOSE','PARTIAL_CLOSE'], true) && $closeQty !== $quantity) {
                 $this->pdo->rollBack();
                 return ['success' => false, 'status' => 422, 'message' => 'Quantidade de encerramento excede a posição disponível.'];
+            }
+            if ($kind === 'CLOSE' && $closeQty !== abs($signedOpen)) {
+                $this->pdo->rollBack();
+                return ['success' => false, 'status' => 422, 'message' => 'O fechamento integral deve encerrar toda a posição líquida do contrato.'];
             }
             if ($kind === 'REVERSAL' && (
                 $signedOpen === 0
@@ -94,6 +123,82 @@ final class OperationService
             $this->repository->insertHistory($userId, $id, 'CREATED', null, $data);
             $this->pdo->commit();
             return ['success' => true, 'status' => 201, 'data' => $this->repository->find($userId, $id)];
+        } catch (Throwable $e) {
+            if ($this->pdo->inTransaction()) $this->pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    public function update(int $userId, int $id, array $input): array
+    {
+        try {
+            $this->pdo->beginTransaction();
+            $operation = $this->repository->find($userId, $id);
+            if ($operation === null) {
+                $this->pdo->rollBack();
+                return ['success' => false, 'status' => 404, 'message' => 'Operação não encontrada.'];
+            }
+
+            $closures = $this->pdo->prepare('SELECT 1 FROM operation_closures WHERE user_id = :user_id AND (opening_operation_id = :opening_id OR closing_operation_id = :closing_id) LIMIT 1');
+            $closures->execute(['user_id' => $userId, 'opening_id' => $id, 'closing_id' => $id]);
+            if ($closures->fetchColumn()) {
+                $this->pdo->rollBack();
+                return ['success' => false, 'status' => 422, 'message' => 'Esta operação participa de um fechamento e não pode ser editada sem recalcular o histórico.'];
+            }
+
+            $data = [
+                'option_contract_id' => (int) $operation['option_contract_id'],
+                'side' => strtoupper((string) ($input['side'] ?? $operation['side'])),
+                'quantity' => $input['quantity'] ?? $operation['quantity'],
+                'unit_price' => $input['unit_price'] ?? $operation['unit_price'],
+                'costs' => $input['costs'] ?? $operation['costs'],
+                'executed_at' => $input['executed_at'] ?? $operation['executed_at'],
+                'operation_kind' => strtoupper((string) ($input['operation_kind'] ?? $operation['operation_kind'])),
+            ];
+            $errors = $this->validate($data);
+            if ($errors !== []) {
+                $this->pdo->rollBack();
+                return ['success' => false, 'status' => 422, 'errors' => $errors];
+            }
+
+            $strategyId = ($input['strategy_id'] ?? $operation['strategy_id']) === '' ? null : ($input['strategy_id'] ?? $operation['strategy_id']);
+            if ($strategyId !== null) {
+                $strategyId = filter_var($strategyId, FILTER_VALIDATE_INT);
+                if ($strategyId === false || $strategyId < 1) {
+                    $this->pdo->rollBack();
+                    return ['success' => false, 'status' => 422, 'errors' => ['strategy_id' => 'Estratégia inválida.']];
+                }
+                $strategy = $this->pdo->prepare('SELECT id FROM strategies WHERE id = :id');
+                $strategy->execute(['id' => $strategyId]);
+                if (!$strategy->fetchColumn()) {
+                    $this->pdo->rollBack();
+                    return ['success' => false, 'status' => 422, 'errors' => ['strategy_id' => 'Estratégia inexistente.']];
+                }
+            }
+
+            $contract = $this->pdo->prepare('SELECT contract_multiplier FROM option_contracts WHERE id = :id');
+            $contract->execute(['id' => (int) $operation['option_contract_id']]);
+            $multiplier = (int) $contract->fetchColumn();
+            $side = $data['side'];
+            $quantity = (int) $data['quantity'];
+            $price = (float) $data['unit_price'];
+            $costs = (float) $data['costs'];
+            $after = [
+                'strategy_id' => $strategyId,
+                'side' => $side,
+                'quantity' => $quantity,
+                'unit_price' => $price,
+                'gross_cash_flow' => round($price * $quantity * $multiplier, 6) * ($side === 'BUY' ? -1 : 1),
+                'costs' => $costs,
+                'executed_at' => (string) $data['executed_at'],
+                'operation_kind' => $data['operation_kind'],
+                'notes' => array_key_exists('notes', $input) ? trim((string) $input['notes']) : $operation['notes'],
+            ];
+            $this->repository->update($userId, $id, $after);
+            $this->repository->insertHistory($userId, $id, 'UPDATED', $operation, $after);
+            $this->pdo->commit();
+
+            return ['success' => true, 'status' => 200, 'data' => $this->repository->find($userId, $id)];
         } catch (Throwable $e) {
             if ($this->pdo->inTransaction()) $this->pdo->rollBack();
             throw $e;
@@ -166,6 +271,15 @@ final class OperationService
     {
         if ($this->repository->find($userId, $operationId) === null) return [];
         return $this->repository->history($userId, $operationId);
+    }
+
+    public function transactionHistory(int $userId, int $contractId): ?array
+    {
+        $contract = $this->pdo->prepare('SELECT id FROM option_contracts WHERE id = :id');
+        $contract->execute(['id' => $contractId]);
+        if (!$contract->fetchColumn()) return null;
+
+        return $this->repository->transactionHistory($userId, $contractId);
     }
 
     private function openPositions(int $userId, int $contractId): array

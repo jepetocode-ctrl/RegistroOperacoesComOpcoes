@@ -44,9 +44,24 @@ final class OperationController
                 Response::json(['success'=>true,'data'=>$this->service->positions((int)$user['id'],$contractId)]);
                 return;
             }
+            if (($parts[1] ?? '') === 'contracts' && isset($parts[2], $parts[3]) && ctype_digit($parts[2]) && $parts[3] === 'transactions' && $method === 'GET') {
+                $history = $this->service->transactionHistory((int) $user['id'], (int) $parts[2]);
+                if ($history === null) {
+                    Response::json(['success' => false, 'message' => 'Contrato não encontrado.'], 404);
+                    return;
+                }
+                Response::json(['success' => true, 'data' => $history]);
+                return;
+            }
             if (($parts[1] ?? '') === 'operations' && isset($parts[2]) && ctype_digit($parts[2]) && ($parts[3] ?? '') === 'history' && $method === 'GET') {
                 $history = $this->service->history((int)$user['id'],(int)$parts[2]);
                 Response::json(['success'=>true,'data'=>$history]);
+                return;
+            }
+            if (($parts[1] ?? '') === 'operations' && isset($parts[2]) && ctype_digit($parts[2]) && $method === 'PUT') {
+                $result = $this->service->update((int)$user['id'], (int)$parts[2], Request::all());
+                $status = $result['status'] ?? 200; unset($result['status']);
+                Response::json($result, $status);
                 return;
             }
             if ($method === 'GET') {
