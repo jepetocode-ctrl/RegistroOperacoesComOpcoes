@@ -26,4 +26,4 @@ return [
     ['GET', '/api/strategies/{id}', [FinancialRegistrationController::class, 'handle']],
     ['PUT', '/api/strategies/{id}', [FinancialRegistrationController::class, 'handle']],
     ['PATCH', '/api/strategies/{id}', [FinancialRegistrationController::class, 'handle']],
-]
+];
