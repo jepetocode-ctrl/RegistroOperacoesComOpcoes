@@ -42,3 +42,15 @@ Foi adicionada uma primeira interface em `resources/views/dashboard/index.php` c
 5. Executar `composer test`, testes do motor e migrações aplicáveis no checkout real; registrar apenas resultados efetivamente observados.
 
 A implementação atual é parcial: o motor TypeScript não foi localizado por caminhos candidatos e não houve execução de testes nesta sessão. Não marcar Etapa 7 como concluída.
+
+
+## Etapa 8 — Interface e dashboard (em andamento)
+
+1. Executar `composer test` e os testes do motor financeiro no checkout; corrigir regressões encontradas.
+2. Validar em navegador desktop e celular o layout, navegação, filtros, acessibilidade, carregamento e mensagens de erro.
+3. Conferir indicadores com cenários controlados: carteira vazia, posição aberta com/sem cotação, encerramento parcial, múltiplos contratos e rolagem.
+4. Confirmar que realizado é somado uma vez por contrato e que fluxo de caixa não é rotulado como lucro; documentar a definição financeira dos KPIs.
+5. Revisar o gráfico para resultados positivos/negativos e garantir que o sentido dos valores esteja visualmente claro.
+6. Integrar a calculadora à engine TypeScript e concluir as pendências da Etapa 7 antes de considerar o conjunto da interface validado.
+
+A implementação inicial usa dados dos endpoints existentes e não cria preços fictícios. Testes de execução e navegador ainda não foram feitos nesta sessão; não marcar a etapa como concluída.
