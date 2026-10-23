@@ -2,40 +2,26 @@
 
 ## Etapa atual
 
-Etapa 2 - Autenticação e segurança.
+Etapa 4 — Cadastros e banco de dados financeiro.
 
-## Próxima etapa recomendada
+## Prioridade imediata
 
-Concluir autenticação, login, sessão, troca obrigatória de senha e proteção de rotas.
+1. Executar `composer test` e `php scripts/run-migrations.php` em ambiente configurado.
+2. Adicionar testes para CRUD de ativos, contratos e estratégias.
+3. Testar que usuário A não consulta, altera ou referencia dados do usuário B.
+4. Testar duplicidade por usuário, validação de campos, status inativo e restrições de chave estrangeira em PostgreSQL e SQLite.
+5. Aplicar proteção CSRF em todos os métodos de escrita autenticados.
+6. Criar a interface HTML/CSS/JavaScript para os cadastros.
 
-## Tarefas pendentes
+## Critérios de aceitação da Etapa 4
 
-1. Criar tela de login e fluxo de autenticação.
-2. Implementar sessão segura com cookie com atributos apropriados.
-3. Provisionar usuário administrador inicial.
-4. Garantir troca obrigatória da senha no primeiro acesso.
-5. Implementar alteração e logout.
-6. Adicionar proteção CSRF e controle de permissões.
-7. Registrar logs de auditoria sem dados sensíveis.
-8. Validar rotas protegidas e APIs restritas.
+- Registros persistidos e consultáveis.
+- Relações de contratos com ativos consistentes e limitadas ao mesmo usuário.
+- Isolamento de dados verificado por testes.
+- Edição e desativação lógica cobertas por testes.
+- Migrações executam em PostgreSQL e no fallback SQLite.
+- APIs autenticadas e protegidas contra CSRF.
 
-## Dependências
+## Observação de continuidade
 
-- Estrutura base pronta.
-- Banco configurado.
-- Migração inicial executando corretamente.
-- Ambiente local operacional com fallback SQLite ou driver PostgreSQL habilitado.
-
-## Critérios de aceitação
-
-- Usuários não autenticados não acessam páginas protegidas.
-- Usuário administrador inicial só funciona com política de primeiro acesso.
-- Senha salva como hash seguro.
-- Alteração de senha valida senha atual.
-- Rotas e APIs protegidas verificam autorização no servidor.
-
-## Riscos conhecidos
-
-- Repositório ainda sem autenticação implementada.
-- Banco deve estar disponível localmente antes dos testes de sessão.
-- Em ambientes sem PDO PostgreSQL, é necessário ativar a extensão ou manter o fallback SQLite apenas para desenvolvimento.
+A documentação anterior indicava Etapa 2 como atual, embora já existissem fluxos de autenticação e código do motor financeiro. Consulte `docs/PROJECT_STATUS.md` para distinguir funcionalidades existentes de critérios ainda não verificados.
