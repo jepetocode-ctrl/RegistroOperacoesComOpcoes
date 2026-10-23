@@ -55,9 +55,14 @@ final class OperationService
                 $this->pdo->rollBack();
                 return ['success' => false, 'status' => 422, 'message' => 'Quantidade de encerramento excede a posição disponível.'];
             }
-            if ($kind === 'REVERSAL' && $closeQty !== abs($signedOpen)) {
+            if ($kind === 'REVERSAL' && (
+                $signedOpen === 0
+                || ($signedOpen > 0 && $side !== 'SELL')
+                || ($signedOpen < 0 && $side !== 'BUY')
+                || $quantity <= abs($signedOpen)
+            )) {
                 $this->pdo->rollBack();
-                return ['success' => false, 'status' => 422, 'message' => 'Inversão exige quantidade igual à posição líquida aberta.'];
+                return ['success' => false, 'status' => 422, 'message' => 'Inversão exige operação contrária maior que a posição líquida atual, para encerrar e abrir a posição inversa.'];
             }
             $strategyId = isset($input['strategy_id']) ? (int)$input['strategy_id'] : null;
             if ($strategyId !== null) {
