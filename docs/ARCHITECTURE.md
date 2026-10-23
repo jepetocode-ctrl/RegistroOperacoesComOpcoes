@@ -23,7 +23,7 @@ Organizar a aplicação em camadas para manter a separação de responsabilidade
 ## Convenções
 
 - PHP 8.3+.
-- Composer PSR-4 com namespace `App\\`.
+- Composer PSR-4 com namespace `App\`.
 - Banco principal PostgreSQL, com compatibilidade SQLite para desenvolvimento/testes.
 - Regras financeiras permanecem fora dos controladores.
 - Ledger de operações é append-only; histórico financeiro não deve ser apagado ou reescrito.
