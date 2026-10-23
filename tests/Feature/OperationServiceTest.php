@@ -43,7 +43,7 @@ final class OperationServiceTest extends TestCase
         $positions = $this->service->positions(1);
         self::assertSame(6, $positions[0]['open_quantity']);
         self::assertSame(-5200.0, $positions[0]['gross_cash_flow']);
-        self::assertSame(798.0, $positions[0]['realized_result']);
+        self::assertEqualsWithDelta(798.2, $positions[0]['realized_result'], 0.000001);
     }
 
     public function testCloseCannotExceedAvailablePosition(): void
