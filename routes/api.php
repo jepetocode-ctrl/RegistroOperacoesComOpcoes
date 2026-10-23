@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Controllers\AuthController;
 use App\Controllers\FinancialRegistrationController;
 use App\Controllers\HomeController;
+use App\Controllers\OperationController;
 
 return [
     ['GET', '/api/status', [HomeController::class, 'apiStatus']],
@@ -26,4 +27,9 @@ return [
     ['GET', '/api/strategies/{id}', [FinancialRegistrationController::class, 'handle']],
     ['PUT', '/api/strategies/{id}', [FinancialRegistrationController::class, 'handle']],
     ['PATCH', '/api/strategies/{id}', [FinancialRegistrationController::class, 'handle']],
+    ['GET', '/api/operations', [OperationController::class, 'handle']],
+    ['POST', '/api/operations', [OperationController::class, 'handle']],
+    ['GET', '/api/operations/{id}/history', [OperationController::class, 'handle']],
+    ['GET', '/api/positions', [OperationController::class, 'handle']],
+    ['GET', '/api/positions/{id}', [OperationController::class, 'handle']],
 ];
