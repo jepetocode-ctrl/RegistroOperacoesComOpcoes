@@ -67,3 +67,12 @@ Avançar para próxima etapa funcional com foco em integração de interface, re
 ### Próxima ação recomendada para Etapa 7
 
 Inventariar a árvore real do repositório, localizar o motor TypeScript e sua estratégia de build. Extrair Black-Scholes e strike reverso para esse módulo, acrescentar testes de referência e limites, conectar a view ao artefato efetivamente compilado e executar a suíte PHP e testes do motor no checkout. Verificar também a acessibilidade e erros no navegador.
+
+
+## Etapa 8 — Interface e dashboard (implementação inicial; validação pendente)
+
+- Atualizada `resources/views/dashboard/index.php` com layout responsivo, navegação lateral e seções de visão geral, posições, lotes em aberto e calculadoras preservadas.
+- Indicadores e tabelas consomem `GET /api/positions`, `GET /api/option-contracts` e `GET /api/assets`; os dados não são semeados na interface. O painel usa apenas um endpoint de posições para evitar duplicar os mesmos resultados retornados também por `GET /api/operations`.
+- Adicionados filtros por código/estado da posição e por contrato/lado do lote, gráfico comparativo por contrato, alertas de ausência de cotação e vencimentos próximos, estados de carregamento, mensagens de erro e botão para atualizar.
+- Resultado não realizado aparece como indisponível se algum contrato aberto não tiver cotação; fluxo de caixa é rotulado separadamente de lucro.
+- **Não declarar Etapa 8 concluída ainda:** não foi possível executar a suíte PHP nem validar a tela em navegador nesta sessão. É necessário testar os indicadores com operações de exemplo controladas, verificar responsividade real, erros HTTP/sessão e os casos de carteira vazia/sem cotação. A Etapa 7 também continua parcial.
