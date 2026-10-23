@@ -1,8 +1,12 @@
 # Próximos passos
 
-## Próxima etapa
+## Etapa atual
 
 Etapa 2 - Autenticação e segurança.
+
+## Próxima etapa recomendada
+
+Concluir autenticação, login, sessão, troca obrigatória de senha e proteção de rotas.
 
 ## Tarefas pendentes
 

@@ -2,7 +2,7 @@
 
 ## Etapa atual
 
-Etapa 1 - Fundação técnica concluída.
+Etapa 2 - Autenticação e segurança em andamento.
 
 ## Última etapa concluída
 
