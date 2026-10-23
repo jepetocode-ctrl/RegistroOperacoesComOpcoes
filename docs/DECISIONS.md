@@ -9,7 +9,7 @@
 
 ## Convenções
 
-- Namespace `App\\` para código PHP.
+- Namespace `App\` para código PHP.
 - PSR-4 via Composer.
 - Roteamento por arrays e classes de controller.
 - Respostas JSON padronizadas e códigos HTTP consistentes.
