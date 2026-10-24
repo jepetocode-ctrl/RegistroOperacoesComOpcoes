@@ -128,15 +128,25 @@ final class StrategyLegService
             throw new PDOException('A perna deve informar side válido: BUY ou SELL.');
         }
 
-        $quantity = (int) ($leg['quantity'] ?? 0);
-        if ($quantity <= 0) {
-            throw new PDOException('A quantidade da perna deve ser maior que zero.');
+        $quantityRaw = $leg['quantity'] ?? null;
+        if (filter_var($quantityRaw, FILTER_VALIDATE_INT) === false || (int) $quantityRaw <= 0) {
+            throw new PDOException('A quantidade da perna deve ser um inteiro positivo.');
+        }
+        foreach (['strike_price', 'premium', 'costs'] as $numericField) {
+            if (!isset($leg[$numericField]) || !is_numeric($leg[$numericField]) || !is_finite((float) $leg[$numericField])) {
+                throw new PDOException('Informe valores numéricos válidos para strike, prêmio e custos.');
+            }
+        }
+        $multiplierRaw = $leg['contract_multiplier'] ?? 100;
+        if (filter_var($multiplierRaw, FILTER_VALIDATE_INT) === false || (int) $multiplierRaw <= 0) {
+            throw new PDOException('O multiplicador deve ser um inteiro positivo.');
         }
 
-        $strikePrice = (float) ($leg['strike_price'] ?? 0);
-        $premium = (float) ($leg['premium'] ?? 0);
-        $contractMultiplier = (int) ($leg['contract_multiplier'] ?? 100);
-        $costs = (float) ($leg['costs'] ?? 0);
+        $quantity = (int) $quantityRaw;
+        $strikePrice = (float) $leg['strike_price'];
+        $premium = (float) $leg['premium'];
+        $contractMultiplier = (int) $multiplierRaw;
+        $costs = (float) $leg['costs'];
         $expirationDate = (string) ($leg['expiration_date'] ?? '');
 
         if ($strikePrice <= 0) throw new PDOException('O strike deve ser positivo.');
