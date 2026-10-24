@@ -10,6 +10,7 @@ use App\Repositories\FinancialRegistrationRepository;
 use App\Repositories\OperationRepository;
 use App\Services\FinancialRegistrationService;
 use App\Services\OperationService;
+use App\Services\StrategyLegService;
 use App\Support\Database;
 use App\Support\Request;
 use App\Support\Response;
@@ -41,6 +42,20 @@ final class RegistryController extends BaseController
         $assets = $this->financialService->list('assets', $userId);
         $contracts = $this->financialService->list('option_contracts', $userId);
         $strategies = $this->financialService->list('strategies', $userId);
+        $strategyLegService = new StrategyLegService($this->pdo);
+        foreach ($strategies as &$strategy) {
+            $legacyLegs = $strategy['legs'] ?? [];
+            if (is_string($legacyLegs)) {
+                $legacyLegs = json_decode($legacyLegs, true) ?: [];
+            }
+            try {
+                $normalizedLegs = $strategyLegService->listForStrategy($userId, (int) $strategy['id']);
+                $strategy['legs'] = $normalizedLegs !== [] ? $normalizedLegs : (is_array($legacyLegs) ? $legacyLegs : []);
+            } catch (\Throwable) {
+                $strategy['legs'] = is_array($legacyLegs) ? $legacyLegs : [];
+            }
+        }
+        unset($strategy);
         $operations = $this->operationRepository->list($userId);
 
         $html = $this->view('registry/index', [
