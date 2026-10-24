@@ -237,7 +237,7 @@
                                 <input type="hidden" name="legs[${index}][position]" value="${index + 1}">
                                 <label class="mini-label">
                                     Contrato
-                                    <select name="legs[${index}][option_contract_id]" class="leg-contract">${contractOptions}</select>
+                                    <select name="legs[${index}][option_contract_id]" class="leg-contract" required>${contractOptions}</select>
                                 </label>
                                 <label class="mini-label">
                                     Lado
