@@ -44,15 +44,12 @@ final class RegistryController extends BaseController
         $strategies = $this->financialService->list('strategies', $userId);
         $strategyLegService = new StrategyLegService($this->pdo);
         foreach ($strategies as &$strategy) {
-            $legacyLegs = $strategy['legs'] ?? [];
-            if (is_string($legacyLegs)) {
-                $legacyLegs = json_decode($legacyLegs, true) ?: [];
-            }
             try {
                 $normalizedLegs = $strategyLegService->listForStrategy($userId, (int) $strategy['id']);
-                $strategy['legs'] = $normalizedLegs !== [] ? $normalizedLegs : (is_array($legacyLegs) ? $legacyLegs : []);
+                $legacyLegs = self::normalizeLegsForView($strategy['legs'] ?? []);
+                $strategy['legs'] = $normalizedLegs !== [] ? $normalizedLegs : $legacyLegs;
             } catch (\Throwable) {
-                $strategy['legs'] = is_array($legacyLegs) ? $legacyLegs : [];
+                $strategy['legs'] = self::normalizeLegsForView($strategy['legs'] ?? []);
             }
         }
         unset($strategy);
@@ -160,5 +157,29 @@ final class RegistryController extends BaseController
         $_SESSION['registry_error'] = $message;
         header('Location: ' . $location);
         exit;
+    }
+
+    public static function normalizeLegsForView(mixed $legs): array
+    {
+        if ($legs === null || $legs === '') {
+            return [];
+        }
+
+        if (is_string($legs)) {
+            $decoded = json_decode($legs, true);
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                return [];
+            }
+            $legs = $decoded;
+        }
+
+        if (!is_array($legs)) {
+            return [];
+        }
+
+        return array_values(array_filter(
+            $legs,
+            static fn (mixed $leg): bool => is_array($leg)
+        ));
     }
 }

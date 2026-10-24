@@ -39,10 +39,6 @@ final class OperationController
                 Response::json($result, $status);
                 return;
             }
-            if (($parts[1] ?? '') === 'strategy-positions' && $method === 'GET') {
-                Response::json(['success' => true, 'data' => $this->service->strategyPositions((int) $user['id'])]);
-                return;
-            }
             if (($parts[1] ?? '') === 'positions' && $method === 'GET') {
                 $contractId = isset($parts[2]) && ctype_digit($parts[2]) ? (int)$parts[2] : null;
                 Response::json(['success'=>true,'data'=>$this->service->positions((int)$user['id'],$contractId)]);

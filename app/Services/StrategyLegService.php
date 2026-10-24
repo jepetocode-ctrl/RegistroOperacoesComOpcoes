@@ -157,7 +157,7 @@ final class StrategyLegService
         if ($premium < 0) throw new PDOException('O prêmio não pode ser negativo.');
         if ($contractMultiplier <= 0) throw new PDOException('O multiplicador deve ser positivo.');
         if ($costs < 0) throw new PDOException('Os custos não podem ser negativos.');
-        $parsedDate = \\DateTimeImmutable::createFromFormat('!Y-m-d', $expirationDate);
+        $parsedDate = \DateTimeImmutable::createFromFormat('!Y-m-d', $expirationDate);
         if (!$parsedDate || $parsedDate->format('Y-m-d') !== $expirationDate) {
             throw new PDOException('O vencimento deve ser uma data válida no formato AAAA-MM-DD.');
         }

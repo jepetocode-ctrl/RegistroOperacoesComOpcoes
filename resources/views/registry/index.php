@@ -107,7 +107,7 @@
                         Ativo
                         <select name="asset_id" required>
                             <option value="">Selecione</option>
-                            <?php foreach ($assets as $asset): ?>
+                            <?php foreach (is_array($assets) ? $assets : [] as $asset): ?>
                                 <option value="<?php echo (int) $asset['id']; ?>"><?php echo htmlspecialchars((string) $asset['symbol'], ENT_QUOTES, 'UTF-8'); ?></option>
                             <?php endforeach; ?>
                         </select>
@@ -189,10 +189,17 @@
                 <div style="margin-top: 20px;">
                     <strong>Estratégias salvas</strong>
                     <div style="display:grid; gap:8px; margin-top:10px;">
-                        <?php if (!$strategies): ?>
+                        <?php if (!is_array($strategies) || !$strategies): ?>
                             <span class="muted">Nenhuma estratégia cadastrada.</span>
                         <?php else: ?>
                             <?php foreach ($strategies as $strategy): ?>
+                                <?php
+                                $strategyLegs = $strategy['legs'] ?? [];
+                                if (is_string($strategyLegs)) {
+                                    $strategyLegs = json_decode($strategyLegs, true);
+                                }
+                                $strategyLegs = is_array($strategyLegs) ? array_values($strategyLegs) : [];
+                                ?>
                                 <button
                                     type="button"
                                     class="button-secondary load-strategy"
@@ -200,7 +207,7 @@
                                     data-name="<?php echo htmlspecialchars((string) ($strategy['name'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
                                     data-description="<?php echo htmlspecialchars((string) ($strategy['description'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
                                     data-status="<?php echo htmlspecialchars((string) ($strategy['status'] ?? 'ACTIVE'), ENT_QUOTES, 'UTF-8'); ?>"
-                                    data-legs='<?php echo json_encode((array) json_decode((string) ($strategy['legs'] ?? '[]'), true), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>'>
+                                    data-legs='<?php echo json_encode($strategyLegs, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>'>
                                     <?php echo htmlspecialchars((string) ($strategy['name'] ?? 'Estratégia'), ENT_QUOTES, 'UTF-8'); ?>
                                 </button>
                             <?php endforeach; ?>
@@ -216,7 +223,20 @@
                         const resetButton = document.getElementById('reset-strategy-form');
                         const strategyIdInput = document.getElementById('strategy-id');
                         const submitButton = document.getElementById('strategy-submit');
-                        const contracts = <?php echo json_encode(array_values($contracts), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+                        const contractList = <?php echo json_encode(array_values((array) $contracts), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+                        const contracts = Array.isArray(contractList) ? contractList : [];
+                        const parseLegsPayload = (value) => {
+                            if (!value) {
+                                return [];
+                            }
+
+                            try {
+                                const parsed = JSON.parse(value);
+                                return Array.isArray(parsed) ? parsed : [];
+                            } catch (error) {
+                                return [];
+                            }
+                        };
                         const currency = value => new Intl.NumberFormat('pt-BR', {style:'currency', currency:'BRL'}).format(Number.isFinite(value) ? value : 0);
 
                         const createRow = (index, leg = {}) => {
@@ -231,7 +251,7 @@
                             const multiplier = Number(leg.contract_multiplier ?? 100);
                             const costs = Number(leg.costs ?? 0);
                             const contractId = String(leg.option_contract_id ?? '');
-                            const contractOptions = '<option value="">Selecione o contrato</option>' + contracts.map(contract => '<option value="' + Number(contract.id) + '" ' + (String(contract.id) === contractId ? 'selected' : '') + '>' + String(contract.code || ('Contrato #' + contract.id)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</option>').join('');
+                            const contractOptions = '<option value="">Selecione o contrato</option>' + (Array.isArray(contracts) ? contracts.map(contract => '<option value="' + Number(contract.id) + '" ' + (String(contract.id) === contractId ? 'selected' : '') + '>' + String(contract.code || ('Contrato #' + contract.id)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</option>').join('') : '');
 
                             row.innerHTML = `
                                 <input type="hidden" name="legs[${index}][position]" value="${index + 1}">
@@ -369,7 +389,7 @@
 
                         document.querySelectorAll('.load-strategy').forEach((button) => {
                             button.addEventListener('click', () => {
-                                const legs = JSON.parse(button.dataset.legs || '[]');
+                                const legs = parseLegsPayload(button.dataset.legs || '[]');
                                 document.getElementById('strategy-name').value = button.dataset.name || '';
                                 document.getElementById('strategy-description').value = button.dataset.description || '';
                                 document.getElementById('strategy-status').value = button.dataset.status || 'ACTIVE';
@@ -398,7 +418,7 @@
                         Contrato
                         <select name="option_contract_id" required>
                             <option value="">Selecione</option>
-                            <?php foreach ($contracts as $contract): ?>
+                            <?php foreach (is_array($contracts) ? $contracts : [] as $contract): ?>
                                 <option value="<?php echo (int) $contract['id']; ?>"><?php echo htmlspecialchars((string) ($contract['code'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></option>
                             <?php endforeach; ?>
                         </select>
@@ -407,7 +427,7 @@
                         Estratégia
                         <select name="strategy_id">
                             <option value="">Sem estratégia</option>
-                            <?php foreach ($strategies as $strategy): ?>
+                            <?php foreach (is_array($strategies) ? $strategies : [] as $strategy): ?>
                                 <option value="<?php echo (int) $strategy['id']; ?>"><?php echo htmlspecialchars((string) $strategy['name'], ENT_QUOTES, 'UTF-8'); ?></option>
                             <?php endforeach; ?>
                         </select>
@@ -468,7 +488,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <?php if (!$operations): ?>
+                    <?php if (!is_array($operations) || !$operations): ?>
                         <tr><td colspan="5" class="muted">Nenhuma operação cadastrada para este usuário.</td></tr>
                     <?php else: ?>
                         <?php foreach ($operations as $operation): ?>
