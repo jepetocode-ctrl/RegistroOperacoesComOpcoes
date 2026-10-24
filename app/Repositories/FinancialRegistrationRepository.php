@@ -21,16 +21,18 @@ final class FinancialRegistrationRepository
     {
         $table = $this->table($resource);
         $sql = "SELECT * FROM {$table}";
-        if (!$includeInactive) $sql .= " WHERE status = 'ACTIVE'";
+        $sql .= ' WHERE user_id = :user_id';
+        if (!$includeInactive) $sql .= " AND status = 'ACTIVE'";
         $sql .= ' ORDER BY id DESC';
-        $stmt = $this->pdo->query($sql);
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute(['user_id' => $userId]);
         return $stmt->fetchAll();
     }
 
     public function find(string $resource, int $userId, int $id): ?array
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM ' . $this->table($resource) . ' WHERE id = :id');
-        $stmt->execute(['id' => $id]);
+        $stmt = $this->pdo->prepare('SELECT * FROM ' . $this->table($resource) . ' WHERE user_id = :user_id AND id = :id');
+        $stmt->execute(['user_id' => $userId, 'id' => $id]);
         $record = $stmt->fetch();
         return $record === false ? null : $record;
     }
