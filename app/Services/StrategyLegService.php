@@ -132,10 +132,14 @@ final class StrategyLegService
         if (filter_var($quantityRaw, FILTER_VALIDATE_INT) === false || (int) $quantityRaw <= 0) {
             throw new PDOException('A quantidade da perna deve ser um inteiro positivo.');
         }
-        foreach (['strike_price', 'premium', 'costs'] as $numericField) {
+        foreach (['strike_price', 'premium'] as $numericField) {
             if (!isset($leg[$numericField]) || !is_numeric($leg[$numericField]) || !is_finite((float) $leg[$numericField])) {
-                throw new PDOException('Informe valores numéricos válidos para strike, prêmio e custos.');
+                throw new PDOException('Informe valores numéricos válidos para strike e prêmio.');
             }
+        }
+        $costsRaw = $leg['costs'] ?? 0;
+        if (!is_numeric($costsRaw) || !is_finite((float) $costsRaw)) {
+            throw new PDOException('Informe um custo numérico válido.');
         }
         $multiplierRaw = $leg['contract_multiplier'] ?? 100;
         if (filter_var($multiplierRaw, FILTER_VALIDATE_INT) === false || (int) $multiplierRaw <= 0) {
@@ -146,7 +150,7 @@ final class StrategyLegService
         $strikePrice = (float) $leg['strike_price'];
         $premium = (float) $leg['premium'];
         $contractMultiplier = (int) $multiplierRaw;
-        $costs = (float) $leg['costs'];
+        $costs = (float) $costsRaw;
         $expirationDate = (string) ($leg['expiration_date'] ?? '');
 
         if ($strikePrice <= 0) throw new PDOException('O strike deve ser positivo.');
