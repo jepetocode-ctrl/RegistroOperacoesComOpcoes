@@ -91,6 +91,23 @@ final class UserRepository
         ]);
     }
 
+    public function updateStatus(int $id, string $status): bool
+    {
+        if (!in_array($status, ['ACTIVE', 'BLOCKED', 'DELETED'], true)) {
+            throw new \InvalidArgumentException('Status de usuário inválido.');
+        }
+
+        $stmt = $this->pdo->prepare('UPDATE users SET status = :status, updated_at = CURRENT_TIMESTAMP WHERE id = :id');
+        $stmt->execute([':status' => $status, ':id' => $id]);
+
+        return $stmt->rowCount() > 0;
+    }
+
+    public function countActiveAdmins(): int
+    {
+        return (int) $this->pdo->query("SELECT COUNT(*) FROM users WHERE profile = 'ADMIN' AND status = 'ACTIVE'")->fetchColumn();
+    }
+
     public function hasPermission(int $userId, string $permission): bool
     {
         $user = $this->findById($userId);

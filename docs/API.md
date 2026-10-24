@@ -53,3 +53,7 @@ O fluxo de caixa bruto é -preço × quantidade × multiplicador para BUY e posi
 ## Respostas e segurança
 
 Sucesso usa {"success":true,"data":...}. Validação retorna HTTP 422, sessão ausente 401, recurso não encontrado 404 e falha CSRF 419. As consultas são sempre escopadas pelo usuário da sessão.
+
+## Administração de usuários
+
+Somente administradores podem acessar `/admin/users`. A tela permite bloquear/desbloquear contas e redefinir a senha por meio de uma senha temporária, que é exibida uma única vez e exige troca no próximo login. A exclusão é lógica: marca a conta como `DELETED`, impede novos acessos e preserva os dados financeiros. Não é permitido bloquear ou excluir a própria conta, nem remover o último administrador ativo. As ações administrativas exigem token CSRF.

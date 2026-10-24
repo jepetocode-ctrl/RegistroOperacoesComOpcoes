@@ -26,4 +26,7 @@ return [
     ['GET', '/admin/users', [UserManagementController::class, 'index']],
     ['POST', '/admin/users', [UserManagementController::class, 'store']],
     ['POST', '/admin/users/{id}/permissions', [UserManagementController::class, 'updatePermissions']],
+    ['POST', '/admin/users/{id}/status', [UserManagementController::class, 'setStatus']],
+    ['POST', '/admin/users/{id}/delete', [UserManagementController::class, 'delete']],
+    ['POST', '/admin/users/{id}/reset-password', [UserManagementController::class, 'resetPassword']],
 ];

@@ -88,4 +88,44 @@ final class AuthFlowTest extends TestCase
         $this->assertSame('MANAGER', $user['profile']);
         $this->assertSame(['dashboard', 'operations', 'reports'], $user['permissions']);
     }
+
+    public function testBlockedAndDeletedUsersRemainStoredButCannotAuthenticate(): void
+    {
+        $repository = new UserRepository($this->pdo);
+        $userId = $repository->create([
+            'username' => 'conta',
+            'password_hash' => password_hash('senha123', PASSWORD_DEFAULT),
+            'profile' => 'USER',
+            'status' => 'ACTIVE',
+            'must_change_password' => false,
+        ]);
+        $service = new AuthService($repository);
+
+        $repository->updateStatus($userId, 'BLOCKED');
+        self::assertSame('BLOCKED', $repository->findById($userId)['status']);
+        self::assertSame('Usuário inativo.', $service->login('conta', 'senha123')['message']);
+
+        $repository->updateStatus($userId, 'DELETED');
+        self::assertSame('DELETED', $repository->findById($userId)['status']);
+        self::assertSame('Usuário inativo.', $service->login('conta', 'senha123')['message']);
+    }
+
+    public function testPasswordResetRequiresUserToChangeTemporaryPassword(): void
+    {
+        $repository = new UserRepository($this->pdo);
+        $userId = $repository->create([
+            'username' => 'conta',
+            'password_hash' => password_hash('senha-antiga', PASSWORD_DEFAULT),
+            'profile' => 'USER',
+            'status' => 'ACTIVE',
+            'must_change_password' => false,
+        ]);
+        $temporaryPassword = 'temporaria-segura';
+        $repository->updatePassword($userId, password_hash($temporaryPassword, PASSWORD_DEFAULT), true);
+
+        $result = (new AuthService($repository))->login('conta', $temporaryPassword);
+
+        self::assertTrue($result['success']);
+        self::assertTrue($result['must_change_password']);
+    }
 }

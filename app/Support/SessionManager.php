@@ -58,6 +58,15 @@ final class SessionManager
         session_regenerate_id(true);
     }
 
+    public static function refreshUser(array $user): void
+    {
+        self::start();
+        $_SESSION['user_id'] = (int) $user['id'];
+        $_SESSION['username'] = (string) $user['username'];
+        $_SESSION['profile'] = (string) ($user['profile'] ?? 'USER');
+        $_SESSION['must_change_password'] = (bool) ($user['must_change_password'] ?? false);
+    }
+
     public static function regenerate(): void
     {
         self::start();
