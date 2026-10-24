@@ -7,6 +7,7 @@ namespace Tests\Feature;
 use App\Services\RolloverService;
 use App\Database\LegacyMigrations\CreateOperationsAndPositions;
 use App\Database\LegacyMigrations\CreateRollovers;
+use App\Database\LegacyMigrations\AddDashboardArchiveFields;
 use PDO;
 use PHPUnit\Framework\TestCase;
 
@@ -33,6 +34,7 @@ final class RolloverServiceTest extends TestCase
         $this->pdo->exec("INSERT INTO option_contracts (user_id,asset_id,code,option_type,strike_price,expiration_date) VALUES (1,1,'PETR4C2','CALL',12,'2027-02-19')");
         $this->pdo->exec("INSERT INTO option_contracts (user_id,asset_id,code,option_type,strike_price,expiration_date) VALUES (2,2,'VALE3C','CALL',12,'2027-02-19')");
         (new CreateOperationsAndPositions())->up($this->pdo);
+        (new AddDashboardArchiveFields())->up($this->pdo);
         (new CreateRollovers())->up($this->pdo);
         $this->pdo->exec("INSERT INTO operations (user_id,option_contract_id,side,quantity,unit_price,gross_cash_flow,costs,executed_at,operation_kind) VALUES (1,1,'BUY',10,10,-10000,2,'2026-10-23 10:00:00','OPEN')");
         $this->service = new RolloverService($this->pdo);

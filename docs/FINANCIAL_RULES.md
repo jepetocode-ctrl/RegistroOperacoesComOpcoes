@@ -17,6 +17,9 @@
 - Custos específicos pertencem à perna informada. Custos gerais são distribuídos proporcionalmente a quantidade de contratos × multiplicador; os valores são preservados como custos, sem alterar o fluxo bruto.
 - A gravação cria posição, operações, vínculos, histórico e auditoria em transação única.
 - O dashboard separa fluxo inicial, resultado realizado, resultado não realizado e exposição das pernas ainda abertas. O payoff de exposição não soma resultado realizado.
+- A prévia da boleta estima lucro e perda máximos no vencimento, incluindo prêmios e custos informados; com vencimentos distintos, não apresenta esses valores.
+- Uma posição agrupada só pode ser editada enquanto todas as pernas iniciais estiverem abertas e não houver rolagem. A edição atualiza as operações existentes em transação e registra valores anteriores e novos no histórico. Após encerramento/rolagem, use os fluxos próprios para manter a trilha financeira.
+- Modelos reutilizáveis já associados a posições não podem ser alterados; clone o modelo para criar uma versão editável sem reescrever as regras históricas.
 
 ## Limitações de cálculo
 

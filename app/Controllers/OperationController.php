@@ -64,11 +64,17 @@ final class OperationController
                 Response::json($result, $status);
                 return;
             }
+            if (($parts[1] ?? '') === 'operations' && isset($parts[2]) && ctype_digit($parts[2]) && $method === 'DELETE') {
+                $result = $this->service->archive((int) $user['id'], (int) $parts[2]);
+                $status = $result['status'] ?? 200; unset($result['status']);
+                Response::json($result, $status);
+                return;
+            }
             if ($method === 'GET') {
                 Response::json(['success'=>true,'data'=>$this->service->positions((int)$user['id'])]);
                 return;
             }
-            if ($method !== 'POST') { header('Allow: GET, POST'); Response::json(['success'=>false,'message'=>'Método não permitido.'],405); return; }
+            if ($method !== 'POST') { header('Allow: GET, POST, PUT, DELETE'); Response::json(['success'=>false,'message'=>'Método não permitido.'],405); return; }
             $result = $this->service->register((int)$user['id'],Request::all());
             $status = $result['status'] ?? 200; unset($result['status']);
             Response::json($result,$status);

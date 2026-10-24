@@ -17,11 +17,30 @@ final class StructuredPositionRepository
         return (int) $this->pdo->lastInsertId();
     }
 
+    public function updatePosition(int $userId, int $positionId, array $data): void
+    {
+        $statement = $this->pdo->prepare('UPDATE structured_positions SET strategy_template_id = :template_id, name = :name, base_quantity = :base_quantity, executed_at = :executed_at, general_costs = :general_costs, declared_strategy = :declared_strategy, inferred_strategy = :inferred_strategy, classification_status = :classification_status, notes = :notes WHERE id = :id AND user_id = :user_id');
+        $statement->execute($data + ['id' => $positionId, 'user_id' => $userId]);
+    }
+
+    public function archive(int $userId, int $positionId): bool
+    {
+        $statement = $this->pdo->prepare('UPDATE structured_positions SET archived_at = CURRENT_TIMESTAMP WHERE id = :id AND user_id = :user_id AND archived_at IS NULL');
+        $statement->execute(['id' => $positionId, 'user_id' => $userId]);
+        return $statement->rowCount() > 0;
+    }
+
     public function insertOperation(array $data): int
     {
         $statement = $this->pdo->prepare("INSERT INTO operations (user_id,option_contract_id,strategy_id,structured_position_id,side,quantity,unit_price,gross_cash_flow,costs,executed_at,operation_kind,notes) VALUES (:user_id,:contract_id,:strategy_id,:structured_id,:side,:quantity,:unit_price,:gross,:costs,:executed_at,:operation_kind,:notes)");
         $statement->execute($data);
         return (int) $this->pdo->lastInsertId();
+    }
+
+    public function updateOperation(int $userId, int $positionId, int $operationId, array $data): void
+    {
+        $statement = $this->pdo->prepare('UPDATE operations SET option_contract_id = :contract_id, strategy_id = :strategy_id, side = :side, quantity = :quantity, unit_price = :unit_price, gross_cash_flow = :gross, costs = :costs, executed_at = :executed_at, notes = :notes WHERE id = :id AND user_id = :user_id AND structured_position_id = :position_id');
+        $statement->execute($data + ['id' => $operationId, 'user_id' => $userId, 'position_id' => $positionId]);
     }
 
     public function insertLeg(int $positionId, string $slotKey, int $operationId, int $contractId, string $entryKind = 'INITIAL'): void
@@ -36,16 +55,28 @@ final class StructuredPositionRepository
         ]);
     }
 
+    public function updateLeg(int $positionId, int $operationId, string $slotKey, int $contractId): void
+    {
+        $statement = $this->pdo->prepare('UPDATE structured_position_legs SET slot_key = :slot_key, option_contract_id = :contract_id WHERE structured_position_id = :position_id AND operation_id = :operation_id AND entry_kind = :entry_kind');
+        $statement->execute([
+            'position_id' => $positionId,
+            'operation_id' => $operationId,
+            'slot_key' => $slotKey,
+            'contract_id' => $contractId,
+            'entry_kind' => 'INITIAL',
+        ]);
+    }
+
     public function list(int $userId): array
     {
-        $statement = $this->pdo->prepare('SELECT sp.*, a.symbol AS asset_symbol, st.name AS template_name, st.code AS template_code, st.support_level FROM structured_positions sp JOIN assets a ON a.id = sp.asset_id AND a.user_id = sp.user_id JOIN strategy_templates st ON st.id = sp.strategy_template_id WHERE sp.user_id = :user_id ORDER BY sp.executed_at DESC, sp.id DESC');
+        $statement = $this->pdo->prepare('SELECT sp.*, a.symbol AS asset_symbol, st.name AS template_name, st.code AS template_code, st.support_level FROM structured_positions sp JOIN assets a ON a.id = sp.asset_id AND a.user_id = sp.user_id JOIN strategy_templates st ON st.id = sp.strategy_template_id WHERE sp.user_id = :user_id AND sp.archived_at IS NULL ORDER BY sp.executed_at DESC, sp.id DESC');
         $statement->execute(['user_id' => $userId]);
         return array_map(fn(array $position): array => $this->hydrate($userId, $position), $statement->fetchAll(PDO::FETCH_ASSOC));
     }
 
     public function find(int $userId, string $uuid): ?array
     {
-        $statement = $this->pdo->prepare('SELECT sp.*, a.symbol AS asset_symbol, st.name AS template_name, st.code AS template_code, st.support_level FROM structured_positions sp JOIN assets a ON a.id = sp.asset_id AND a.user_id = sp.user_id JOIN strategy_templates st ON st.id = sp.strategy_template_id WHERE sp.user_id = :user_id AND sp.uuid = :uuid');
+        $statement = $this->pdo->prepare('SELECT sp.*, a.symbol AS asset_symbol, st.name AS template_name, st.code AS template_code, st.support_level FROM structured_positions sp JOIN assets a ON a.id = sp.asset_id AND a.user_id = sp.user_id JOIN strategy_templates st ON st.id = sp.strategy_template_id WHERE sp.user_id = :user_id AND sp.uuid = :uuid AND sp.archived_at IS NULL');
         $statement->execute(['user_id' => $userId, 'uuid' => $uuid]);
         $position = $statement->fetch(PDO::FETCH_ASSOC);
         return $position === false ? null : $this->hydrate($userId, $position);
@@ -53,7 +84,7 @@ final class StructuredPositionRepository
 
     public function findById(int $userId, int $id): ?array
     {
-        $statement = $this->pdo->prepare('SELECT sp.*, a.symbol AS asset_symbol, st.name AS template_name, st.code AS template_code, st.support_level FROM structured_positions sp JOIN assets a ON a.id = sp.asset_id AND a.user_id = sp.user_id JOIN strategy_templates st ON st.id = sp.strategy_template_id WHERE sp.user_id = :user_id AND sp.id = :id');
+        $statement = $this->pdo->prepare('SELECT sp.*, a.symbol AS asset_symbol, st.name AS template_name, st.code AS template_code, st.support_level FROM structured_positions sp JOIN assets a ON a.id = sp.asset_id AND a.user_id = sp.user_id JOIN strategy_templates st ON st.id = sp.strategy_template_id WHERE sp.user_id = :user_id AND sp.id = :id AND sp.archived_at IS NULL');
         $statement->execute(['user_id' => $userId, 'id' => $id]);
         $position = $statement->fetch(PDO::FETCH_ASSOC);
         return $position === false ? null : $this->hydrate($userId, $position);
@@ -68,7 +99,7 @@ final class StructuredPositionRepository
 
     public function unstructuredOperations(int $userId): array
     {
-        $statement = $this->pdo->prepare('SELECT o.*, c.code AS contract_code, c.option_type, c.strike_price, c.expiration_date, c.contract_multiplier FROM operations o JOIN option_contracts c ON c.id = o.option_contract_id AND c.user_id = o.user_id WHERE o.user_id = :user_id AND o.structured_position_id IS NULL ORDER BY o.executed_at DESC, o.id DESC');
+        $statement = $this->pdo->prepare('SELECT o.*, c.code AS contract_code, c.option_type, c.strike_price, c.expiration_date, c.contract_multiplier FROM operations o JOIN option_contracts c ON c.id = o.option_contract_id AND c.user_id = o.user_id WHERE o.user_id = :user_id AND o.structured_position_id IS NULL AND o.archived_at IS NULL ORDER BY o.executed_at DESC, o.id DESC');
         $statement->execute(['user_id' => $userId]);
         return $statement->fetchAll(PDO::FETCH_ASSOC);
     }

@@ -219,6 +219,45 @@ final class OperationService
         }
     }
 
+    public function archive(int $userId, int $id): array
+    {
+        $this->pdo->beginTransaction();
+        try {
+            $operation = $this->repository->find($userId, $id);
+            if ($operation === null) {
+                $this->pdo->rollBack();
+                return ['success' => false, 'status' => 404, 'message' => 'Operação não encontrada.'];
+            }
+            if (($operation['structured_position_id'] ?? null) !== null) {
+                $this->pdo->rollBack();
+                return ['success' => false, 'status' => 409, 'message' => 'Arquive a posição estruturada pelo menu de estratégias.'];
+            }
+            $sql = 'SELECT 1 FROM operation_closures WHERE user_id = :user_id AND (opening_operation_id = :opening_id OR closing_operation_id = :closing_id)';
+            $parameters = ['user_id' => $userId, 'opening_id' => $id, 'closing_id' => $id];
+            if ($this->tableExists('rollovers')) {
+                $sql .= ' UNION SELECT 1 FROM rollovers WHERE user_id = :rollover_user_id AND (source_operation_id = :source_id OR closing_operation_id = :closing_id2 OR opening_operation_id = :opening_id2)';
+                $parameters += ['rollover_user_id' => $userId, 'source_id' => $id, 'closing_id2' => $id, 'opening_id2' => $id];
+            }
+            $related = $this->pdo->prepare($sql . ' LIMIT 1');
+            $related->execute($parameters);
+            if ($related->fetchColumn()) {
+                $this->pdo->rollBack();
+                return ['success' => false, 'status' => 409, 'message' => 'Esta operação tem encerramentos ou rolagens relacionados e não pode ser arquivada isoladamente.'];
+            }
+            $before = $operation;
+            if (!$this->repository->archive($userId, $id)) {
+                $this->pdo->rollBack();
+                return ['success' => false, 'status' => 409, 'message' => 'A operação já foi arquivada.'];
+            }
+            $this->repository->insertHistory($userId, $id, 'ARCHIVED', $before, ['archived_at' => date('Y-m-d H:i:s')]);
+            $this->pdo->commit();
+            return ['success' => true, 'status' => 200, 'data' => ['id' => $id, 'archived' => true]];
+        } catch (Throwable $exception) {
+            if ($this->pdo->inTransaction()) $this->pdo->rollBack();
+            throw $exception;
+        }
+    }
+
     public function positions(int $userId, ?int $contractId = null): array
     {
         $operations = $this->repository->list($userId, $contractId);
@@ -354,5 +393,17 @@ final class OperationService
             }
         }
         return $errors;
+    }
+
+    private function tableExists(string $table): bool
+    {
+        if ($this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite') {
+            $statement = $this->pdo->prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = :table");
+            $statement->execute(['table' => $table]);
+            return (bool) $statement->fetchColumn();
+        }
+        $statement = $this->pdo->prepare('SELECT 1 FROM information_schema.tables WHERE table_name = :table');
+        $statement->execute(['table' => $table]);
+        return (bool) $statement->fetchColumn();
     }
 }

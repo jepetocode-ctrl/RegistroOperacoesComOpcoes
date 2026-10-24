@@ -12,7 +12,7 @@ final class OperationRepository
 
     public function list(int $userId, ?int $contractId = null): array
     {
-        $sql = 'SELECT * FROM operations WHERE user_id = :user_id';
+        $sql = 'SELECT * FROM operations WHERE user_id = :user_id AND archived_at IS NULL';
         $params = ['user_id' => $userId];
         if ($contractId !== null) { $sql .= ' AND option_contract_id = :contract_id'; $params['contract_id'] = $contractId; }
         $sql .= ' ORDER BY executed_at, id';
@@ -30,7 +30,7 @@ final class OperationRepository
 
     public function find(int $userId, int $id): ?array
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM operations WHERE user_id = :user_id AND id = :id');
+        $stmt = $this->pdo->prepare('SELECT * FROM operations WHERE user_id = :user_id AND id = :id AND archived_at IS NULL');
         $stmt->execute(['user_id' => $userId, 'id' => $id]);
         $row = $stmt->fetch();
         return $row === false ? null : $row;
@@ -53,6 +53,13 @@ final class OperationRepository
             'costs' => $data['costs'], 'executed_at' => $data['executed_at'],
             'operation_kind' => $data['operation_kind'], 'notes' => $data['notes'],
         ]);
+    }
+
+    public function archive(int $userId, int $id): bool
+    {
+        $stmt = $this->pdo->prepare('UPDATE operations SET archived_at = CURRENT_TIMESTAMP WHERE user_id = :user_id AND id = :id AND archived_at IS NULL');
+        $stmt->execute(['user_id' => $userId, 'id' => $id]);
+        return $stmt->rowCount() > 0;
     }
 
     public function insertClosure(array $data): void

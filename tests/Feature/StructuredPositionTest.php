@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Database\LegacyMigrations\AddUserPermissions;
+use App\Database\LegacyMigrations\AddDashboardArchiveFields;
 use App\Database\LegacyMigrations\CreateAppBaseTables;
 use App\Database\LegacyMigrations\CreateFinancialRegistrations;
 use App\Database\LegacyMigrations\CreateOperationsAndPositions;
@@ -47,6 +48,7 @@ final class StructuredPositionTest extends TestCase
             (1,1,'PETRP90','PUT',90,'2026-12-18',100),
             (2,2,'OTHER-C100','CALL',100,'2026-12-18',100)");
         (new CreateStructuredStrategyDomain())->up($this->pdo);
+        (new AddDashboardArchiveFields())->up($this->pdo);
         $this->templates = new StrategyTemplateRepository($this->pdo);
         $this->positions = new StructuredPositionService($this->pdo, $this->templates, new StructuredPositionRepository($this->pdo));
     }
@@ -109,6 +111,14 @@ final class StructuredPositionTest extends TestCase
         ]);
         self::assertFalse($updated['success']);
         self::assertSame(409, $updated['status']);
+        $cloned = $templates->clone(1, (int) $created['data']['id']);
+        self::assertTrue($cloned['success'], json_encode($cloned));
+        $cloneUpdate = $templates->update(1, (int) $cloned['data']['id'], [
+            'name' => 'Fly versão nova',
+            'slots' => $cloned['data']['slots'],
+            'constraints' => $cloned['data']['constraints'],
+        ]);
+        self::assertTrue($cloneUpdate['success'], json_encode($cloneUpdate));
     }
 
     public function testTemplateConstraintAndForeignContractAreRejectedWithoutWrites(): void
@@ -158,6 +168,51 @@ final class StructuredPositionTest extends TestCase
         self::assertSame([1, 1], array_column($closed['data']['legs'], 'open_quantity'));
         self::assertSame(700.0, $closed['data']['payoff']['max_profit']);
         self::assertSame(2, (int) $this->pdo->query('SELECT COUNT(*) FROM operation_closures')->fetchColumn());
+    }
+
+    public function testOpenStructuredPositionCanBeEditedWithAnAuditedLedgerUpdate(): void
+    {
+        $templateId = $this->catalogId('call_spread_buy');
+        $opened = $this->positions->register(1, $this->callSpread($templateId));
+        self::assertTrue($opened['success'], json_encode($opened));
+        $originalOperationIds = array_column($opened['data']['legs'], 'operation_id');
+
+        $updated = $this->positions->update(1, $opened['data']['uuid'], [
+            'strategy_template_id' => $templateId,
+            'name' => 'Trava revisada',
+            'base_quantity' => 3,
+            'executed_at' => '2026-10-24 11:00:00',
+            'general_costs' => 3,
+            'legs' => [
+                ['slot_key' => 'long_call', 'option_contract_id' => 1, 'unit_price' => 11, 'costs' => 1],
+                ['slot_key' => 'short_call', 'option_contract_id' => 2, 'unit_price' => 5, 'costs' => 0],
+            ],
+            'confirm_classification' => true,
+        ]);
+
+        self::assertTrue($updated['success'], json_encode($updated));
+        self::assertSame('Trava revisada', $updated['data']['name']);
+        self::assertSame(3, $updated['data']['base_quantity']);
+        self::assertSame($originalOperationIds, array_column($updated['data']['legs'], 'operation_id'));
+        self::assertSame([3, 3], array_column($updated['data']['legs'], 'quantity'));
+        self::assertSame(2, (int) $this->pdo->query("SELECT COUNT(*) FROM operation_history WHERE action = 'STRUCTURED_POSITION_EDITED'")->fetchColumn());
+    }
+
+    public function testStructuredPositionWithClosuresCannotBeEdited(): void
+    {
+        $opened = $this->positions->register(1, $this->callSpread($this->catalogId('call_spread_buy')));
+        self::assertTrue($opened['success'], json_encode($opened));
+        $closed = $this->positions->close(1, $opened['data']['uuid'], [
+            'lots' => 1,
+            'legs' => [
+                ['slot_key' => 'long_call', 'unit_price' => 7, 'costs' => 0],
+                ['slot_key' => 'short_call', 'unit_price' => 1, 'costs' => 0],
+            ],
+        ]);
+        self::assertTrue($closed['success'], json_encode($closed));
+        $result = $this->positions->update(1, $opened['data']['uuid'], []);
+        self::assertFalse($result['success']);
+        self::assertSame(409, $result['status']);
     }
 
     public function testRolloverClosesAndReopensWithinSamePosition(): void

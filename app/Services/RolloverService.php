@@ -25,12 +25,19 @@ final class RolloverService
             $openContractId = (int)$input['opening_contract_id'];
             $strategyId = isset($input['strategy_id']) && $input['strategy_id'] !== '' ? (int)$input['strategy_id'] : null;
 
-            $q = $this->pdo->prepare('SELECT * FROM operations WHERE id = :id AND user_id = :user_id');
+            $q = $this->pdo->prepare('SELECT * FROM operations WHERE id = :id AND user_id = :user_id AND archived_at IS NULL');
             $q->execute(['id'=>$sourceId, 'user_id'=>$userId]);
             $source = $q->fetch(PDO::FETCH_ASSOC);
             if (!$source) return $this->reject(['source_operation_id'=>'Operação de origem não encontrada.']);
-            if (($source['structured_position_id'] ?? null) !== null) {
-                return $this->reject(['source_operation_id'=>'Esta operação pertence a uma estratégia estruturada. Use a ação de rolagem da posição.']);
+            $structuredPositionId = isset($source['structured_position_id']) ? (int)$source['structured_position_id'] : null;
+            $structuredSlot = null;
+            if ($structuredPositionId !== null) {
+                $legQuery = $this->pdo->prepare('SELECT slot_key FROM structured_position_legs WHERE structured_position_id = :position_id AND operation_id = :operation_id');
+                $legQuery->execute(['position_id'=>$structuredPositionId, 'operation_id'=>$sourceId]);
+                $structuredSlot = $legQuery->fetchColumn();
+                if (!is_string($structuredSlot) || $structuredSlot === '') {
+                    return $this->reject(['source_operation_id'=>'A operação não está vinculada a uma perna válida da posição estruturada.']);
+                }
             }
             if ((int)$source['option_contract_id'] !== $closeContractId) return $this->reject(['closing_contract_id'=>'O contrato de encerramento deve corresponder à operação de origem.']);
             if ($closeContractId === $openContractId) return $this->reject(['opening_contract_id'=>'A rolagem exige contrato de abertura diferente do contrato encerrado.']);
@@ -81,7 +88,7 @@ final class RolloverService
             $at = (string)($input['executed_at'] ?? date('Y-m-d H:i:s'));
             $uuid = $this->uuid();
 
-            $closingId = $this->insertOperation($userId,$closeContractId,$strategyId,$closeSide,$quantity,$closePrice,$closeFlow,$closeCosts,$at,$sourceId,'CLOSE','Rolagem '.$uuid.' — encerramento');
+            $closingId = $this->insertOperation($userId,$closeContractId,$strategyId,$closeSide,$quantity,$closePrice,$closeFlow,$closeCosts,$at,$sourceId,'CLOSE','Rolagem '.$uuid.' — encerramento',$structuredPositionId);
             $direction = $source['side'] === 'BUY' ? 1 : -1;
             $realized = round(($closePrice - (float)$source['unit_price']) * $quantity * $multipliers[$closeContractId] * $direction, 6);
             $realized -= $closeCosts;
@@ -89,7 +96,16 @@ final class RolloverService
             $q = $this->pdo->prepare('INSERT INTO operation_closures (user_id, opening_operation_id, closing_operation_id, quantity, realized_result) VALUES (:user_id,:opening_id,:closing_id,:quantity,:realized)');
             $q->execute(['user_id'=>$userId,'opening_id'=>$sourceId,'closing_id'=>$closingId,'quantity'=>$quantity,'realized'=>$realized]);
 
-            $openingId = $this->insertOperation($userId,$openContractId,$strategyId,$openSide,$quantity,$openPrice,$openFlow,$openCosts,$at,$closingId,'OPEN','Rolagem '.$uuid.' — abertura');
+            $openingId = $this->insertOperation($userId,$openContractId,$strategyId,$openSide,$quantity,$openPrice,$openFlow,$openCosts,$at,$closingId,'OPEN','Rolagem '.$uuid.' — abertura',$structuredPositionId);
+            if ($structuredPositionId !== null && $structuredSlot !== null) {
+                $legQuery = $this->pdo->prepare("INSERT INTO structured_position_legs (structured_position_id,slot_key,entry_kind,operation_id,option_contract_id) VALUES (:position_id,:slot_key,'ROLLED',:operation_id,:contract_id)");
+                $legQuery->execute([
+                    'position_id'=>$structuredPositionId,
+                    'slot_key'=>$structuredSlot,
+                    'operation_id'=>$openingId,
+                    'contract_id'=>$openContractId,
+                ]);
+            }
             $history = [
                 'event'=>'ROLLOVER_REGISTERED','rollover_uuid'=>$uuid,'source_operation_id'=>$sourceId,
                 'closing_operation_id'=>$closingId,'opening_operation_id'=>$openingId,'strategy_id'=>$strategyId,'quantity'=>$quantity,
@@ -129,10 +145,15 @@ final class RolloverService
         return $q->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    private function insertOperation(int $userId,int $contractId,?int $strategyId,string $side,int $quantity,float $price,float $flow,float $costs,string $at,?int $referenceId,string $kind,string $notes): int
+    private function insertOperation(int $userId,int $contractId,?int $strategyId,string $side,int $quantity,float $price,float $flow,float $costs,string $at,?int $referenceId,string $kind,string $notes,?int $structuredPositionId): int
     {
-        $q = $this->pdo->prepare('INSERT INTO operations (user_id,option_contract_id,strategy_id,side,quantity,unit_price,gross_cash_flow,costs,executed_at,reference_operation_id,operation_kind,notes) VALUES (:user_id,:contract_id,:strategy_id,:side,:quantity,:price,:flow,:costs,:at,:reference_id,:kind,:notes)');
-        $q->execute(['user_id'=>$userId,'contract_id'=>$contractId,'strategy_id'=>$strategyId,'side'=>$side,'quantity'=>$quantity,'price'=>$price,'flow'=>$flow,'costs'=>$costs,'at'=>$at,'reference_id'=>$referenceId,'kind'=>$kind,'notes'=>$notes]);
+        if ($structuredPositionId === null) {
+            $q = $this->pdo->prepare('INSERT INTO operations (user_id,option_contract_id,strategy_id,side,quantity,unit_price,gross_cash_flow,costs,executed_at,reference_operation_id,operation_kind,notes) VALUES (:user_id,:contract_id,:strategy_id,:side,:quantity,:price,:flow,:costs,:at,:reference_id,:kind,:notes)');
+            $q->execute(['user_id'=>$userId,'contract_id'=>$contractId,'strategy_id'=>$strategyId,'side'=>$side,'quantity'=>$quantity,'price'=>$price,'flow'=>$flow,'costs'=>$costs,'at'=>$at,'reference_id'=>$referenceId,'kind'=>$kind,'notes'=>$notes]);
+            return (int)$this->pdo->lastInsertId();
+        }
+        $q = $this->pdo->prepare('INSERT INTO operations (user_id,option_contract_id,strategy_id,structured_position_id,side,quantity,unit_price,gross_cash_flow,costs,executed_at,reference_operation_id,operation_kind,notes) VALUES (:user_id,:contract_id,:strategy_id,:structured_id,:side,:quantity,:price,:flow,:costs,:at,:reference_id,:kind,:notes)');
+        $q->execute(['user_id'=>$userId,'contract_id'=>$contractId,'strategy_id'=>$strategyId,'structured_id'=>$structuredPositionId,'side'=>$side,'quantity'=>$quantity,'price'=>$price,'flow'=>$flow,'costs'=>$costs,'at'=>$at,'reference_id'=>$referenceId,'kind'=>$kind,'notes'=>$notes]);
         return (int)$this->pdo->lastInsertId();
     }
 

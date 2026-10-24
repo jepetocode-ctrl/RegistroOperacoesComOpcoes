@@ -202,6 +202,206 @@ final class StructuredPositionService
         return ['success' => true, 'status' => 201, 'data' => $this->find($userId, $uuid)];
     }
 
+    public function update(int $userId, string $uuid, array $input): array
+    {
+        $position = $this->find($userId, $uuid);
+        if ($position === null) return ['success' => false, 'status' => 404, 'message' => 'Posição estruturada não encontrada.'];
+        if (array_filter($position['legs'], static fn(array $leg): bool => $leg['entry_kind'] !== 'INITIAL' || (int) $leg['closed_quantity'] > 0) !== []
+            || $position['legs'] === [] || count(array_filter($position['legs'], static fn(array $leg): bool => (int) $leg['open_quantity'] > 0)) !== count($position['legs'])) {
+            return $this->fail(['position' => 'Só é possível editar posições abertas sem encerramentos ou rolagens. Registre uma rolagem ou encerramento para preservar o histórico.'], 409);
+        }
+
+        $templateId = filter_var($input['strategy_template_id'] ?? null, FILTER_VALIDATE_INT);
+        $template = $templateId === false || $templateId === null || $templateId < 1
+            ? null
+            : $this->templates->findVisible($userId, $templateId);
+        if ($template === null) return $this->fail(['strategy_template_id' => 'Modelo de estratégia inexistente.'], 404);
+        if ($template['needs_review'] || $template['support_level'] === 'UNSUPPORTED'
+            || $template['slots'] === []
+            || count($template['slots']) !== count($position['legs'])
+            || count(array_filter($template['slots'], static fn(array $slot): bool => $slot['instrument_type'] !== 'OPTION')) > 0) {
+            return $this->fail(['strategy_template_id' => 'O modelo precisa conter opções e o mesmo número de pernas da posição.']);
+        }
+
+        $errors = [];
+        $base = filter_var($input['base_quantity'] ?? null, FILTER_VALIDATE_INT);
+        if ($base === false || $base === null || $base < 1 || $base > 100000) $errors['base_quantity'] = 'Informe uma quantidade-base inteira entre 1 e 100000.';
+        $executedAt = $this->normalizeDateTime(trim((string) ($input['executed_at'] ?? '')));
+        if (!$this->validDateTime($executedAt)) $errors['executed_at'] = 'Data/hora inexistente ou inválida.';
+        $name = trim((string) ($input['name'] ?? '')) ?: $template['name'];
+        if (mb_strlen($name) > 120) $errors['name'] = 'O nome deve ter até 120 caracteres.';
+        $generalCosts = $this->nonNegativeNumber($input['general_costs'] ?? 0, 'general_costs', $errors);
+        $legsInput = $input['legs'] ?? null;
+        $legsByKey = [];
+        if (!is_array($legsInput) || !array_is_list($legsInput)) {
+            $errors['legs'] = 'Informe todas as pernas da posição.';
+        } else {
+            foreach ($legsInput as $index => $leg) {
+                $key = is_array($leg) ? (string) ($leg['slot_key'] ?? '') : '';
+                if ($key === '' || isset($legsByKey[$key])) {
+                    $errors["legs.{$index}.slot_key"] = 'Slot ausente ou repetido.';
+                    continue;
+                }
+                $legsByKey[$key] = $leg;
+            }
+        }
+        $slotKeys = array_column($template['slots'], 'slot_key');
+        if (!isset($errors['legs'])) {
+            foreach (array_diff($slotKeys, array_keys($legsByKey)) as $missing) $errors["legs.{$missing}"] = 'Perna obrigatória não informada.';
+            foreach (array_diff(array_keys($legsByKey), $slotKeys) as $extra) $errors["legs.{$extra}"] = 'Slot não pertence ao modelo.';
+        }
+        if ($errors !== []) return $this->fail($errors);
+
+        $contractsBySlot = [];
+        foreach ($template['slots'] as $slot) {
+            $key = $slot['slot_key'];
+            $entry = $legsByKey[$key];
+            $contractId = filter_var($entry['option_contract_id'] ?? null, FILTER_VALIDATE_INT);
+            if ($contractId === false || $contractId === null || $contractId < 1) {
+                $errors["legs.{$key}.option_contract_id"] = 'Selecione um contrato válido.';
+                continue;
+            }
+            $query = $this->pdo->prepare("SELECT id, asset_id, code, option_type, strike_price, expiration_date, contract_multiplier FROM option_contracts WHERE id = :id AND user_id = :user_id AND status = 'ACTIVE'");
+            $query->execute(['id' => $contractId, 'user_id' => $userId]);
+            $contract = $query->fetch(PDO::FETCH_ASSOC);
+            if (!$contract) {
+                $errors["legs.{$key}.option_contract_id"] = 'Contrato inexistente, inativo ou de outro usuário.';
+                continue;
+            }
+            if ((int) $contract['asset_id'] !== (int) $position['asset_id']) $errors["legs.{$key}.option_contract_id"] = 'O contrato deve manter o ativo-objeto da posição.';
+            if (strtoupper((string) $contract['option_type']) !== $slot['option_type']) $errors["legs.{$key}.option_contract_id"] = 'O contrato não corresponde ao tipo de opção definido no slot.';
+            $contract['unit_price'] = $this->nonNegativeNumber($entry['unit_price'] ?? null, "legs.{$key}.unit_price", $errors);
+            $contract['specific_costs'] = $this->nonNegativeNumber($entry['costs'] ?? 0, "legs.{$key}.costs", $errors);
+            $contractsBySlot[$key] = $contract;
+        }
+        if ($errors === [] && count($contractsBySlot) === count($template['slots'])) {
+            $errors += TemplateConstraints::evaluate($template['constraints'], $contractsBySlot);
+        }
+        if ($errors !== []) return $this->fail($errors);
+
+        $payoff = $this->payoffLegs($template['slots'], $contractsBySlot, (int) $base);
+        $classification = PositionPayoff::analyze($payoff)['recognition'];
+        $expected = $this->expectedRecognition($template['code']);
+        if (($classification['status'] !== 'RECOGNIZED' || ($expected !== null && $expected !== $classification['strategy']))
+            && !filter_var($input['confirm_classification'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+            return [
+                'success' => false,
+                'status' => 409,
+                'message' => 'A classificação declarada diverge da inferida; revise e confirme explicitamente para continuar.',
+                'errors' => ['classification' => 'Declarada: ' . $template['name'] . '. Inferida: ' . ($classification['strategy'] ?? $classification['status']) . '.'],
+                'data' => ['declared' => $template['name'], 'inferred' => $classification],
+            ];
+        }
+
+        $costWeights = [];
+        $totalWeight = 0;
+        foreach ($template['slots'] as $slot) {
+            $key = $slot['slot_key'];
+            $costWeights[$key] = (int) $slot['ratio'] * (int) $base * (int) $contractsBySlot[$key]['contract_multiplier'];
+            $totalWeight += $costWeights[$key];
+        }
+        $remainingShared = round($generalCosts, 6);
+        $shares = [];
+        foreach ($template['slots'] as $index => $slot) {
+            $share = $index === count($template['slots']) - 1
+                ? $remainingShared
+                : round($generalCosts * ($costWeights[$slot['slot_key']] / $totalWeight), 6);
+            $shares[$slot['slot_key']] = $share;
+            $remainingShared = round($remainingShared - $share, 6);
+        }
+        $positionBefore = [
+            'strategy_template_id' => $position['strategy_template_id'],
+            'name' => $position['name'],
+            'base_quantity' => $position['base_quantity'],
+            'executed_at' => $position['executed_at'],
+            'general_costs' => $position['general_costs'],
+            'notes' => $position['notes'],
+        ];
+
+        try {
+            $this->pdo->beginTransaction();
+            $this->positions->updatePosition($userId, (int) $position['id'], [
+                'template_id' => (int) $template['id'],
+                'name' => $name,
+                'base_quantity' => (int) $base,
+                'executed_at' => $executedAt,
+                'general_costs' => round($generalCosts, 6),
+                'declared_strategy' => $template['name'],
+                'inferred_strategy' => $classification['strategy'],
+                'classification_status' => $classification['status'],
+                'notes' => trim((string) ($input['notes'] ?? '')) ?: null,
+            ]);
+            foreach ($template['slots'] as $index => $slot) {
+                $key = $slot['slot_key'];
+                $contract = $contractsBySlot[$key];
+                $operationId = (int) $position['legs'][$index]['operation_id'];
+                $quantity = (int) $base * (int) $slot['ratio'];
+                $price = round((float) $contract['unit_price'], 6);
+                $costs = round((float) $contract['specific_costs'] + $shares[$key], 6);
+                $gross = round($price * $quantity * (int) $contract['contract_multiplier'], 6) * ($slot['side'] === 'BUY' ? -1 : 1);
+                $before = [
+                    'slot_key' => $position['legs'][$index]['slot_key'],
+                    'option_contract_id' => (int) $position['legs'][$index]['option_contract_id'],
+                    'contract_code' => $position['legs'][$index]['contract_code'],
+                    'side' => $position['legs'][$index]['side'],
+                    'quantity' => (int) $position['legs'][$index]['quantity'],
+                    'unit_price' => (float) $position['legs'][$index]['unit_price'],
+                    'costs' => (float) $position['legs'][$index]['costs'],
+                    'gross_cash_flow' => (float) $position['legs'][$index]['gross_cash_flow'],
+                    'executed_at' => $position['executed_at'],
+                ];
+                $after = [
+                    'structured_position_uuid' => $uuid,
+                    'slot_key' => $key,
+                    'option_contract_id' => (int) $contract['id'],
+                    'contract_code' => $contract['code'],
+                    'side' => $slot['side'],
+                    'quantity' => $quantity,
+                    'unit_price' => $price,
+                    'costs' => $costs,
+                    'gross_cash_flow' => $gross,
+                    'executed_at' => $executedAt,
+                ];
+                $this->positions->updateOperation($userId, (int) $position['id'], $operationId, [
+                    'contract_id' => (int) $contract['id'],
+                    'strategy_id' => $template['legacy_strategy_id'] === null ? null : (int) $template['legacy_strategy_id'],
+                    'side' => $slot['side'],
+                    'quantity' => $quantity,
+                    'unit_price' => $price,
+                    'gross' => $gross,
+                    'costs' => $costs,
+                    'executed_at' => $executedAt,
+                    'notes' => 'Posição estruturada ' . $uuid . ' — ' . $slot['label'],
+                ]);
+                $this->positions->updateLeg((int) $position['id'], $operationId, $key, (int) $contract['id']);
+                $history = $this->pdo->prepare('INSERT INTO operation_history (user_id,operation_id,action,before_data,after_data) VALUES (:user_id,:operation_id,:action,:before_data,:after_data)');
+                $history->execute([
+                    'user_id' => $userId,
+                    'operation_id' => $operationId,
+                    'action' => 'STRUCTURED_POSITION_EDITED',
+                    'before_data' => json_encode($before, JSON_THROW_ON_ERROR),
+                    'after_data' => json_encode($after, JSON_THROW_ON_ERROR),
+                ]);
+            }
+            $this->recordAudit($userId, 'STRUCTURED_POSITION_EDITED', (int) $position['id'], [
+                'before' => $positionBefore,
+                'after' => [
+                    'strategy_template_id' => (int) $template['id'],
+                    'name' => $name,
+                    'base_quantity' => (int) $base,
+                    'executed_at' => $executedAt,
+                    'general_costs' => round($generalCosts, 6),
+                    'notes' => trim((string) ($input['notes'] ?? '')) ?: null,
+                ],
+            ]);
+            $this->pdo->commit();
+        } catch (Throwable $exception) {
+            if ($this->pdo->inTransaction()) $this->pdo->rollBack();
+            throw $exception;
+        }
+        return ['success' => true, 'status' => 200, 'data' => $this->find($userId, $uuid)];
+    }
+
     public function close(int $userId, string $uuid, array $input): array
     {
         $position = $this->positions->find($userId, $uuid);
@@ -329,6 +529,29 @@ final class StructuredPositionService
         return $position === null ? null : $this->present($position);
     }
 
+    public function archive(int $userId, string $uuid): array
+    {
+        $position = $this->positions->find($userId, $uuid);
+        if ($position === null) return ['success' => false, 'status' => 404, 'message' => 'Posição estruturada não encontrada.'];
+
+        try {
+            $this->pdo->beginTransaction();
+            if (!$this->positions->archive($userId, (int) $position['id'])) {
+                $this->pdo->rollBack();
+                return ['success' => false, 'status' => 409, 'message' => 'A posição já foi arquivada.'];
+            }
+            $this->recordAudit($userId, 'STRUCTURED_POSITION_ARCHIVED', (int) $position['id'], [
+                'uuid' => $uuid,
+                'note' => 'Posição ocultada do agrupamento; operações e histórico financeiro foram preservados.',
+            ]);
+            $this->pdo->commit();
+        } catch (Throwable $exception) {
+            if ($this->pdo->inTransaction()) $this->pdo->rollBack();
+            throw $exception;
+        }
+        return ['success' => true, 'status' => 200, 'data' => ['uuid' => $uuid, 'archived' => true]];
+    }
+
     public function unstructuredOperations(int $userId): array
     {
         return $this->positions->unstructuredOperations($userId);
@@ -367,6 +590,7 @@ final class StructuredPositionService
             }
             $entry = [
                 'slot_key' => $leg['slot_key'],
+                'entry_kind' => $leg['entry_kind'],
                 'ratio' => (int) ($leg['ratio'] ?? 1),
                 'label' => $leg['label'],
                 'operation_id' => (int) $leg['id'],
@@ -375,6 +599,7 @@ final class StructuredPositionService
                 'side' => $leg['side'],
                 'option_type' => $leg['option_type'],
                 'quantity' => $quantity,
+                'closed_quantity' => $closedQuantity,
                 'open_quantity' => $openQuantity,
                 'strike_price' => (float) $leg['strike_price'],
                 'expiration_date' => $leg['expiration_date'],
@@ -411,6 +636,7 @@ final class StructuredPositionService
         $nearest = $nearestExpirations === [] ? null : min($nearestExpirations);
         $payoff = PositionPayoff::analyze($openPayoffLegs);
         return [
+            'id' => (int) $position['id'],
             'uuid' => $position['uuid'],
             'name' => $position['name'],
             'strategy' => $position['declared_strategy'],
@@ -422,6 +648,7 @@ final class StructuredPositionService
             'asset_symbol' => $position['asset_symbol'],
             'base_quantity' => $position['base_quantity'],
             'executed_at' => $position['executed_at'],
+            'general_costs' => (float) $position['general_costs'],
             'currency' => $position['currency'],
             'broker' => $position['broker'],
             'status' => $status,
@@ -656,7 +883,7 @@ final class StructuredPositionService
         ]);
     }
 
-    private function recordAudit(int $userId, string $action, int $id): void
+    private function recordAudit(int $userId, string $action, int $id, array $metadata = []): void
     {
         $statement = $this->pdo->prepare('INSERT INTO audit_logs (user_id,action,entity_type,entity_id,metadata) VALUES (:user_id,:action,:entity_type,:entity_id,:metadata)');
         $statement->execute([
@@ -664,7 +891,7 @@ final class StructuredPositionService
             'action' => $action,
             'entity_type' => 'structured_position',
             'entity_id' => $id,
-            'metadata' => '{}',
+            'metadata' => $metadata === [] ? '{}' : json_encode($metadata, JSON_THROW_ON_ERROR),
         ]);
     }
 

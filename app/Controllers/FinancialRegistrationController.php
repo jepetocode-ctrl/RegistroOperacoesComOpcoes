@@ -30,7 +30,7 @@ final class FinancialRegistrationController
             Response::json(['success' => false, 'message' => 'Não autenticado.'], 401);
             return;
         }
-        if (in_array(Request::method(), ['POST', 'PUT', 'PATCH'], true) && !CsrfMiddleware::validate()) {
+        if (in_array(Request::method(), ['POST', 'PUT', 'PATCH', 'DELETE'], true) && !CsrfMiddleware::validate()) {
             Response::json(['success' => false, 'message' => 'Token CSRF inválido.'], 419);
             return;
         }
@@ -55,8 +55,19 @@ final class FinancialRegistrationController
                 Response::json(['success' => true, 'data' => $record]);
                 return;
             }
+            if ($method === 'DELETE') {
+                if ($id === null) {
+                    Response::json(['success' => false, 'message' => 'Informe o ID do cadastro.'], 422);
+                    return;
+                }
+                $result = $this->service->archive($resource, (int) $user['id'], $id);
+                $status = $result['status'] ?? 200;
+                unset($result['status']);
+                Response::json($result, $status);
+                return;
+            }
             if (!in_array($method, ['POST', 'PUT', 'PATCH'], true)) {
-                header('Allow: GET, POST, PUT, PATCH');
+                header('Allow: GET, POST, PUT, PATCH, DELETE');
                 Response::json(['success' => false, 'message' => 'Método não permitido.'], 405);
                 return;
             }

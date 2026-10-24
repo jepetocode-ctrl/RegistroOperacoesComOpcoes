@@ -87,6 +87,14 @@ final class StructuredPositionController
                     $this->respond($this->positions->register($userId, Request::all()));
                     return;
                 }
+                if ($method === 'PUT' && $ref !== null && ($parts[3] ?? null) === null) {
+                    $this->respond($this->positions->update($userId, $ref, Request::all()));
+                    return;
+                }
+                if ($method === 'DELETE' && $ref !== null && ($parts[3] ?? null) === null) {
+                    $this->respond($this->positions->archive($userId, $ref));
+                    return;
+                }
                 if ($method === 'POST' && $ref !== null && ($parts[3] ?? '') === 'close') {
                     $this->respond($this->positions->close($userId, $ref, Request::all()));
                     return;

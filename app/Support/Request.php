@@ -20,7 +20,7 @@ final class Request
     {
         $data = $_REQUEST;
 
-        if (in_array(self::method(), ['POST', 'PUT', 'PATCH'], true) && self::isJson()) {
+        if (in_array(self::method(), ['POST', 'PUT', 'PATCH', 'DELETE'], true) && self::isJson()) {
             $raw = file_get_contents('php://input');
             $decoded = json_decode((string) $raw, true);
             if (is_array($decoded)) {

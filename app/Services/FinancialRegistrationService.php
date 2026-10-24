@@ -23,6 +23,18 @@ final class FinancialRegistrationService
         return $this->repository->find($resource, $userId, $id);
     }
 
+    public function archive(string $resource, int $userId, int $id): array
+    {
+        if (!in_array($resource, ['assets', 'option_contracts', 'strategies'], true)) {
+            return ['success' => false, 'status' => 404, 'message' => 'Cadastro não encontrado.'];
+        }
+        if ($this->repository->findOwned($resource, $userId, $id) === null) {
+            return ['success' => false, 'status' => 404, 'message' => 'Cadastro não encontrado.'];
+        }
+        $record = $this->repository->update($resource, $userId, $id, ['status' => 'INACTIVE']);
+        return ['success' => true, 'status' => 200, 'data' => $record, 'archived' => true];
+    }
+
     public function save(string $resource, int $userId, array $data, ?int $id = null): array
     {
         $validation = FinancialRegistrationValidator::validate($resource, $data, $id !== null);

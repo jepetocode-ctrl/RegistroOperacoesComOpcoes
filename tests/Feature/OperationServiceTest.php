@@ -7,6 +7,7 @@ namespace Tests\Feature;
 use App\Repositories\OperationRepository;
 use App\Services\OperationService;
 use App\Database\LegacyMigrations\CreateOperationsAndPositions;
+use App\Database\LegacyMigrations\AddDashboardArchiveFields;
 use PDO;
 use PHPUnit\Framework\TestCase;
 
@@ -29,6 +30,7 @@ final class OperationServiceTest extends TestCase
         $this->pdo->exec("INSERT INTO assets (user_id,symbol,name) VALUES (1,'PETR4','Petrobras')");
         $this->pdo->exec("INSERT INTO option_contracts (user_id,asset_id,code,option_type,strike_price,expiration_date,contract_multiplier) VALUES (1,1,'PETR4C','CALL',10,'2027-01-15',100)");
         (new CreateOperationsAndPositions())->up($this->pdo);
+        (new AddDashboardArchiveFields())->up($this->pdo);
         $this->service = new OperationService($this->pdo, new OperationRepository($this->pdo));
     }
 
@@ -51,9 +53,17 @@ final class OperationServiceTest extends TestCase
         $this->service->register(1, ['option_contract_id'=>1,'side'=>'BUY','quantity'=>3,'unit_price'=>10,'operation_kind'=>'OPEN']);
         $result = $this->service->register(1, ['option_contract_id'=>1,'side'=>'SELL','quantity'=>4,'unit_price'=>12,'operation_kind'=>'CLOSE']);
         self::assertFalse($result['success']);
-        self::assertSame(422, $result['status']);
-        self::assertSame(1, count($this->service->positions(1)));
-        self::assertSame(3, $this->service->positions(1)[0]['open_quantity']);
+    }
+
+    public function testOpenUnstructuredOperationCanBeArchivedWithoutDeletingItsHistory(): void
+    {
+        $opened = $this->service->register(1, ['option_contract_id'=>1,'side'=>'BUY','quantity'=>3,'unit_price'=>10,'operation_kind'=>'OPEN']);
+        $result = $this->service->archive(1, (int) $opened['data']['id']);
+        self::assertTrue($result['success']);
+        self::assertSame([], $this->service->positions(1));
+        self::assertSame(1, (int) $this->pdo->query("SELECT COUNT(*) FROM operations WHERE archived_at IS NOT NULL")->fetchColumn());
+        self::assertSame(1, (int) $this->pdo->query("SELECT COUNT(*) FROM operation_history WHERE action = 'ARCHIVED'")->fetchColumn());
+        self::assertSame(200, $result['status']);
     }
 
     public function testDeclaredOpenCannotSilentlyCloseAnOppositePosition(): void
