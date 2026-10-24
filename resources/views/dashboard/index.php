@@ -124,7 +124,7 @@
     <aside class="sidebar" aria-label="Navegação principal">
         <div class="side-label">Workspace</div>
         <nav class="side-nav">
-            <a href="#overview" aria-current="page">▦ Visão geral</a><a href="#positions">▤ Posições</a><a href="#lots">≡ Lotes em aberto</a><a href="#calculators">∑ Calculadoras</a><a href="/registros">▣ Registros</a>
+            <a href="#overview" aria-current="page">▦ Visão geral</a><a href="#positions">▤ Posições por contrato</a><a href="#strategy-positions">▧ Posições por estratégia</a><a href="#lots">≡ Lotes em aberto</a><a href="#calculators">∑ Calculadoras</a><a href="/registros">▣ Registros</a>
         </nav>
     </aside>
     <main class="workspace">
