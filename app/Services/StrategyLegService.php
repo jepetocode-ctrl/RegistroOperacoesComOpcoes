@@ -34,13 +34,30 @@ final class StrategyLegService
         $this->assertStrategyOwnership($userId, $strategyId);
 
         $normalized = [];
-        foreach ($legs as $index => $leg) {
-            $normalized[] = $this->normalizeLeg($index, $leg);
-        }
-
         $startedTransaction = false;
 
         try {
+            foreach ($legs as $index => $leg) {
+                $normalizedLeg = $this->normalizeLeg($index, $leg);
+                if ($normalizedLeg['option_contract_id'] !== null) {
+                    $contract = $this->pdo->prepare(
+                        'SELECT id, option_type, strike_price, expiration_date, contract_multiplier
+                         FROM option_contracts WHERE id = :id AND user_id = :user_id LIMIT 1'
+                    );
+                    $contract->execute(['id' => $normalizedLeg['option_contract_id'], 'user_id' => $userId]);
+                    $contractRow = $contract->fetch(PDO::FETCH_ASSOC);
+                    if (!$contractRow) {
+                        throw new PDOException('O contrato selecionado não existe ou não pertence ao usuário.');
+                    }
+                    if (strtoupper((string) $contractRow['option_type']) !== $normalizedLeg['option_type']
+                        || abs((float) $contractRow['strike_price'] - $normalizedLeg['strike_price']) > 0.000001
+                        || (string) $contractRow['expiration_date'] !== $normalizedLeg['expiration_date']
+                        || (int) $contractRow['contract_multiplier'] !== $normalizedLeg['contract_multiplier']) {
+                        throw new PDOException('Tipo, strike, vencimento e multiplicador da perna devem corresponder ao contrato selecionado.');
+                    }
+                }
+                $normalized[] = $normalizedLeg;
+            }
             if (!$this->pdo->inTransaction()) {
                 $this->pdo->beginTransaction();
                 $startedTransaction = true;
@@ -120,7 +137,16 @@ final class StrategyLegService
         $premium = (float) ($leg['premium'] ?? 0);
         $contractMultiplier = (int) ($leg['contract_multiplier'] ?? 100);
         $costs = (float) ($leg['costs'] ?? 0);
-        $expirationDate = (string) ($leg['expiration_date'] ?? date('Y-m-d'));
+        $expirationDate = (string) ($leg['expiration_date'] ?? '');
+
+        if ($strikePrice <= 0) throw new PDOException('O strike deve ser positivo.');
+        if ($premium < 0) throw new PDOException('O prêmio não pode ser negativo.');
+        if ($contractMultiplier <= 0) throw new PDOException('O multiplicador deve ser positivo.');
+        if ($costs < 0) throw new PDOException('Os custos não podem ser negativos.');
+        $parsedDate = \\DateTimeImmutable::createFromFormat('!Y-m-d', $expirationDate);
+        if (!$parsedDate || $parsedDate->format('Y-m-d') !== $expirationDate) {
+            throw new PDOException('O vencimento deve ser uma data válida no formato AAAA-MM-DD.');
+        }
 
         return [
             'position' => $position,
