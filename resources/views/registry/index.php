@@ -33,6 +33,10 @@
         .leg-stack { display: grid; gap: 12px; }
         .leg-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; }
         .leg-row .mini-label { display: grid; gap: 6px; font-size: 12px; font-weight: 600; }
+        .finance-summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-top:14px; }
+        .finance-metric { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:12px; }
+        .finance-metric span { display:block; color:#475569; font-size:12px; margin-bottom:6px; }
+        .finance-metric strong { font-size:18px; }
         .status.error { background: #fee2e2; color: #991b1b; }
         .status.success { background: #dcfce7; color: #166534; }
         table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13px; }
@@ -164,6 +168,13 @@
                             </div>
                         </div>
                         <div id="strategy-legs" class="leg-stack"></div>
+                        <div class="finance-summary" id="strategy-financial-summary" aria-live="polite">
+                            <div class="finance-metric"><span>Débito bruto (compras)</span><strong id="strategy-debit">R$ 0,00</strong></div>
+                            <div class="finance-metric"><span>Crédito bruto (vendas)</span><strong id="strategy-credit">R$ 0,00</strong></div>
+                            <div class="finance-metric"><span>Custos</span><strong id="strategy-costs">R$ 0,00</strong></div>
+                            <div class="finance-metric"><span>Fluxo líquido inicial</span><strong id="strategy-net-flow">R$ 0,00</strong></div>
+                        </div>
+                        <p class="muted" id="strategy-financial-note">Estimativa baseada nas pernas preenchidas. Não representa lucro final nem payoff no vencimento.</p>
                     </div>
                     <label>
                         Status
@@ -205,6 +216,8 @@
                         const resetButton = document.getElementById('reset-strategy-form');
                         const strategyIdInput = document.getElementById('strategy-id');
                         const submitButton = document.getElementById('strategy-submit');
+                        const contracts = <?php echo json_encode(array_values($contracts), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+                        const currency = value => new Intl.NumberFormat('pt-BR', {style:'currency', currency:'BRL'}).format(Number.isFinite(value) ? value : 0);
 
                         const createRow = (index, leg = {}) => {
                             const row = document.createElement('div');
@@ -217,9 +230,15 @@
                             const premium = Number(leg.premium ?? 0);
                             const multiplier = Number(leg.contract_multiplier ?? 100);
                             const costs = Number(leg.costs ?? 0);
+                            const contractId = String(leg.option_contract_id ?? '');
+                            const contractOptions = '<option value="">Selecione o contrato</option>' + contracts.map(contract => '<option value="' + Number(contract.id) + '" ' + (String(contract.id) === contractId ? 'selected' : '') + '>' + String(contract.code || ('Contrato #' + contract.id)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</option>').join('');
 
                             row.innerHTML = `
                                 <input type="hidden" name="legs[${index}][position]" value="${index + 1}">
+                                <label class="mini-label">
+                                    Contrato
+                                    <select name="legs[${index}][option_contract_id]" class="leg-contract">${contractOptions}</select>
+                                </label>
                                 <label class="mini-label">
                                     Lado
                                     <select name="legs[${index}][side]">
@@ -263,10 +282,23 @@
                                 </div>
                             `;
 
+                            const contractSelect = row.querySelector('.leg-contract');
+                            contractSelect.addEventListener('change', () => {
+                                const contract = contracts.find(item => String(item.id) === contractSelect.value);
+                                if (contract) {
+                                    row.querySelector('[name$="[option_type]"]').value = contract.option_type || 'CALL';
+                                    row.querySelector('[name$="[strike_price]"]').value = contract.strike_price ?? '';
+                                    row.querySelector('[name$="[expiration_date]"]').value = contract.expiration_date || '';
+                                    row.querySelector('[name$="[contract_multiplier]"]').value = contract.contract_multiplier || 100;
+                                }
+                                updateFinancialSummary();
+                            });
+                            row.querySelectorAll('input,select').forEach(field => field.addEventListener('input', updateFinancialSummary));
                             row.querySelector('.remove-leg').addEventListener('click', () => {
                                 if (container.children.length > 1) {
                                     row.remove();
                                     syncRowPositions();
+                                    updateFinancialSummary();
                                 }
                             });
 
@@ -287,6 +319,26 @@
                             });
                         };
 
+
+                        const updateFinancialSummary = () => {
+                            let debit = 0, credit = 0, costs = 0;
+                            container.querySelectorAll('.leg-row').forEach(row => {
+                                const value = selector => Number(row.querySelector(selector)?.value || 0);
+                                const side = row.querySelector('[name$="[side]"]')?.value;
+                                const gross = value('[name$="[quantity]"]') * value('[name$="[premium]"]') * value('[name$="[contract_multiplier]"]');
+                                if (side === 'BUY') debit += gross;
+                                if (side === 'SELL') credit += gross;
+                                costs += value('[name$="[costs]"]');
+                            });
+                            const net = credit - debit - costs;
+                            document.getElementById('strategy-debit').textContent = currency(debit);
+                            document.getElementById('strategy-credit').textContent = currency(credit);
+                            document.getElementById('strategy-costs').textContent = currency(costs);
+                            const netElement = document.getElementById('strategy-net-flow');
+                            netElement.textContent = currency(net);
+                            netElement.style.color = net < 0 ? '#b45309' : net > 0 ? '#047857' : '#0f172a';
+                        };
+
                         const addLeg = (leg = {}) => {
                             const index = container.children.length;
                             container.appendChild(createRow(index, leg));
@@ -299,6 +351,7 @@
                                 return;
                             }
                             payload.forEach((leg) => addLeg(leg));
+                            updateFinancialSummary();
                         };
 
                         const resetStrategyForm = () => {
@@ -308,6 +361,7 @@
                             document.getElementById('strategy-description').value = '';
                             document.getElementById('strategy-status').value = 'ACTIVE';
                             renderStrategy([]);
+                            updateFinancialSummary();
                         };
 
                         addButton.addEventListener('click', () => addLeg());
