@@ -125,11 +125,18 @@ final class StructuredPositionService
         $sharedCosts = (float) $generalCosts;
         $slotsCount = count($template['slots']);
         $allocatedShared = [];
+        $costWeights = [];
+        $totalCostWeight = 0;
+        foreach ($template['slots'] as $slot) {
+            $key = $slot['slot_key'];
+            $costWeights[$key] = (int) $slot['ratio'] * (int) $base * (int) $contractsBySlot[$key]['contract_multiplier'];
+            $totalCostWeight += $costWeights[$key];
+        }
         $remainingShared = round($sharedCosts, 6);
         foreach ($template['slots'] as $index => $slot) {
             $share = $index === $slotsCount - 1
                 ? $remainingShared
-                : round($sharedCosts / $slotsCount, 6);
+                : round($sharedCosts * ($costWeights[$slot['slot_key']] / $totalCostWeight), 6);
             $allocatedShared[$slot['slot_key']] = $share;
             $remainingShared = round($remainingShared - $share, 6);
         }
@@ -663,8 +670,8 @@ final class StructuredPositionService
 
     private function nonNegativeNumber(mixed $value, string $field, array &$errors): float
     {
-        if (!is_numeric($value) || !is_finite((float) $value) || (float) $value < 0) {
-            $errors[$field] = 'Informe um valor numérico não negativo.';
+        if (!is_numeric($value) || !is_finite((float) $value) || (float) $value < 0 || (float) $value > 999999999999.999999) {
+            $errors[$field] = 'Informe um valor numérico não negativo compatível com a precisão monetária.';
             return 0.0;
         }
         return (float) $value;

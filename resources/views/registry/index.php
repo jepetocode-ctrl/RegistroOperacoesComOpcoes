@@ -4,12 +4,9 @@
 /** @var array $contracts */
 /** @var array $strategies */
 /** @var array $operations */
-/** @var array $strategyTemplates */
-/** @var array $structuredPositions */
 /** @var string|null $error */
 /** @var string|null $success */
 /** @var string $csrf */
-/** @var string|null $formContext */
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -46,17 +43,6 @@
         th, td { border-bottom: 1px solid #e2e8f0; padding: 8px 6px; text-align: left; vertical-align: top; }
         th { background: #f8fafc; }
         .muted { color: #475569; }
-        .slot-fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(135px,1fr)); gap:10px; align-items:end; }
-        .template-slot,.position-slot { display:grid; gap:10px; padding:14px; border:1px solid #dbe4f0; border-radius:10px; background:#f8fafc; }
-        .derived { color:#475569; font-size:12px; font-weight:500; }
-        .actions-row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-        .checkline { display:flex; grid-template-columns:auto 1fr; align-items:start; gap:9px; font-weight:500; }
-        .checkline input { width:auto; margin-top:3px; }
-        .template-list { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
-        .template-card { display:grid; gap:6px; border:1px solid #dbe4f0; padding:10px; border-radius:8px; min-width:180px; }
-        .structured-list { display:grid; gap:10px; }
-        .structured-row { border:1px solid #dbe4f0; border-radius:8px; padding:12px; }
-        @media (max-width:640px) { .container { margin:12px auto; } .card { padding:16px; } .topbar { padding:14px 16px; } }
     </style>
 </head>
 <body>
@@ -78,6 +64,90 @@
 
         <h1>Registros do usuário: <?php echo htmlspecialchars((string) ($user['username'] ?? 'Usuário'), ENT_QUOTES, 'UTF-8'); ?></h1>
         <p class="muted">Todos os dados abaixo são isolados por usuário e não são compartilhados com outras contas.</p>
+
+        <section class="card" style="margin-bottom:20px;">
+            <h2>Nova operação</h2>
+            <p class="muted">Monte a boleta por estratégia. Todas as pernas e custos são validados e gravados juntas; o fluxo de caixa não representa lucro.</p>
+            <form method="POST" action="/registros/posicoes-estruturadas" id="trade-ticket">
+                <input type="hidden" name="_csrf_token" value="<?php echo htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8'); ?>">
+                <div class="grid">
+                    <label>Estratégia
+                        <select name="strategy_template_id" id="ticket-template" required>
+                            <option value="">Selecione a estratégia</option>
+                            <?php foreach (($strategyTemplates ?? []) as $template): ?>
+                                <?php if (!$template['needs_review'] && $template['support_level'] !== 'UNSUPPORTED' && $template['slots'] !== []): ?>
+                                    <option value="<?php echo (int) $template['id']; ?>"><?php echo htmlspecialchars((string) $template['name'], ENT_QUOTES, 'UTF-8'); ?></option>
+                                <?php endif; ?>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+                    <label>Ativo-objeto
+                        <select name="asset_id" id="ticket-asset" required>
+                            <option value="">Selecione o ativo</option>
+                            <?php foreach (($assets ?? []) as $asset): ?>
+                                <?php if (($asset['status'] ?? 'ACTIVE') === 'ACTIVE'): ?>
+                                    <option value="<?php echo (int) $asset['id']; ?>"><?php echo htmlspecialchars((string) $asset['symbol'], ENT_QUOTES, 'UTF-8'); ?></option>
+                                <?php endif; ?>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+                    <label>Lotes-base
+                        <input type="number" name="base_quantity" id="ticket-quantity" min="1" max="100000" step="1" value="1" required>
+                    </label>
+                    <label>Data e hora
+                        <input type="datetime-local" name="executed_at" value="<?php echo date('Y-m-d\\TH:i'); ?>" required>
+                    </label>
+                    <label>Corretora
+                        <input type="text" name="broker" maxlength="120" autocomplete="organization">
+                    </label>
+                    <label>Custos gerais da boleta
+                        <input type="number" name="general_costs" id="ticket-general-costs" min="0" step="0.000001" value="0" required>
+                    </label>
+                    <label>Nome da operação (opcional)
+                        <input type="text" name="name" maxlength="120" placeholder="Ex.: Trava de alta PETR4">
+                    </label>
+                </div>
+                <div id="ticket-legs" class="leg-stack" aria-live="polite"><p class="muted">Escolha uma estratégia para preencher as pernas da boleta.</p></div>
+                <div class="finance-summary" aria-live="polite">
+                    <div class="finance-metric"><span>Débito</span><strong id="ticket-debit">R$ 0,00</strong></div>
+                    <div class="finance-metric"><span>Crédito</span><strong id="ticket-credit">R$ 0,00</strong></div>
+                    <div class="finance-metric"><span>Custos</span><strong id="ticket-costs">R$ 0,00</strong></div>
+                    <div class="finance-metric"><span>Fluxo líquido</span><strong id="ticket-flow">R$ 0,00</strong></div>
+                </div>
+                <p class="muted">A boleta só é registrada quando contratos, strikes, vencimentos, quantidades e titularidade passam pela validação do servidor.</p>
+                <div id="ticket-error" class="status error" role="alert" hidden></div>
+                <label style="display:flex;align-items:center;gap:8px;">
+                    <input type="checkbox" name="confirm_classification" value="1" style="width:auto;">
+                    Confirmar mesmo se a classificação inferida divergir ou não for reconhecida
+                </label>
+                <button type="submit">Registrar operação</button>
+            </form>
+        </section>
+
+        <section class="card" style="margin-bottom:20px;">
+            <h2>Operações estruturadas</h2>
+            <?php if (empty($structuredPositions)): ?>
+                <p class="muted">As boletas registradas aparecerão agrupadas aqui.</p>
+            <?php else: ?>
+                <div style="overflow-x:auto;">
+                    <table>
+                        <thead><tr><th>Estratégia</th><th>Ativo</th><th>Status</th><th>Fluxo inicial</th><th>Resultado realizado</th><th>Pernas</th></tr></thead>
+                        <tbody>
+                        <?php foreach ($structuredPositions as $position): ?>
+                            <tr>
+                                <td><?php echo htmlspecialchars((string) $position['strategy'], ENT_QUOTES, 'UTF-8'); ?><br><small><?php echo htmlspecialchars((string) $position['name'], ENT_QUOTES, 'UTF-8'); ?></small></td>
+                                <td><?php echo htmlspecialchars((string) $position['asset_symbol'], ENT_QUOTES, 'UTF-8'); ?></td>
+                                <td><?php echo htmlspecialchars((string) $position['status'], ENT_QUOTES, 'UTF-8'); ?></td>
+                                <td><?php echo htmlspecialchars((string) $position['initial_kind'], ENT_QUOTES, 'UTF-8'); ?> · <?php echo number_format((float) $position['initial_cash_flow'], 2, ',', '.'); ?></td>
+                                <td><?php echo number_format((float) $position['realized_result'], 2, ',', '.'); ?></td>
+                                <td><details><summary><?php echo count($position['legs']); ?> perna(s)</summary><ul><?php foreach ($position['legs'] as $leg): ?><li><?php echo htmlspecialchars((string) $leg['description'], ENT_QUOTES, 'UTF-8'); ?> · <?php echo (int) $leg['open_quantity']; ?> aberta(s)</li><?php endforeach; ?></ul></details></td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php endif; ?>
+        </section>
 
         <div class="grid">
             <section class="card">
@@ -160,121 +230,10 @@
                 </form>
             </section>
 
-            <section class="card">
-                <h2>Modelos de estratégia</h2>
-                <p class="muted">Um modelo define slots, lado, tipo, proporção e restrições — não armazena contratos nem negociações reais.</p>
-                <form method="POST" action="/registros/modelos" id="template-form">
-                    <input type="hidden" name="_csrf_token" value="<?php echo htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8'); ?>">
-                    <input type="hidden" name="template_id" id="template-id" value="">
-                    <label>Começar pelo catálogo
-                        <select id="template-source">
-                            <option value="">Montar modelo livre</option>
-                            <?php foreach ($strategyTemplates as $template): ?>
-                                <?php if ($template['user_id'] === null && !$template['needs_review']): ?>
-                                    <option value="<?php echo (int) $template['id']; ?>"><?php echo htmlspecialchars((string) $template['name'], ENT_QUOTES, 'UTF-8'); ?> · copiar</option>
-                                <?php endif; ?>
-                            <?php endforeach; ?>
-                        </select>
-                    </label>
-                    <label>Nome do modelo
-                        <input name="name" id="template-name" maxlength="120" required>
-                    </label>
-                    <label>Descrição
-                        <textarea name="description" id="template-description" rows="2"></textarea>
-                    </label>
-                    <div>
-                        <div class="actions-row">
-                            <strong>Slots</strong>
-                            <button type="button" class="button-secondary" id="add-template-slot">Adicionar slot</button>
-                        </div>
-                        <div id="template-slots" class="leg-stack"></div>
-                    </div>
-                    <div>
-                        <div class="actions-row">
-                            <strong>Restrições entre slots</strong>
-                            <button type="button" class="button-secondary" id="add-template-constraint">Adicionar restrição</button>
-                        </div>
-                        <div id="template-constraints" class="leg-stack"></div>
-                    </div>
-                    <button type="submit" id="template-submit">Salvar modelo</button>
-                </form>
-                <div class="template-list">
-                    <?php foreach ($strategyTemplates as $template): ?>
-                        <div class="template-card">
-                            <strong><?php echo htmlspecialchars((string) $template['name'], ENT_QUOTES, 'UTF-8'); ?></strong>
-                            <span class="muted"><?php echo htmlspecialchars((string) ($template['origin'] ?? ''), ENT_QUOTES, 'UTF-8'); ?> · <?php echo htmlspecialchars((string) $template['support_level'], ENT_QUOTES, 'UTF-8'); ?><?php echo $template['needs_review'] ? ' · exige revisão' : ''; ?></span>
-                            <button type="button" class="button-secondary load-template" data-id="<?php echo (int) $template['id']; ?>">Usar modelo</button>
-                        </div>
-                    <?php endforeach; ?>
-                </div>
-            </section>
-
-            <section class="card">
-                <h2>Registrar posição estruturada</h2>
-                <p class="muted">Informe os dados comuns uma vez. Lado, tipo e quantidade são derivados do modelo; strike, vencimento e multiplicador vêm do contrato.</p>
-                <form method="POST" action="/registros/posicoes-estruturadas" id="structured-position-form">
-                    <input type="hidden" name="_csrf_token" value="<?php echo htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8'); ?>">
-                    <label>Modelo de estratégia
-                        <select name="strategy_template_id" id="position-template" required>
-                            <option value="">Selecione um modelo compatível</option>
-                            <?php foreach ($strategyTemplates as $template): ?>
-                                <option value="<?php echo (int) $template['id']; ?>" <?php echo $template['needs_review'] || $template['support_level'] === 'UNSUPPORTED' ? 'disabled' : ''; ?>>
-                                    <?php echo htmlspecialchars((string) $template['name'], ENT_QUOTES, 'UTF-8'); ?><?php echo $template['needs_review'] ? ' · exige revisão' : ($template['support_level'] === 'UNSUPPORTED' ? ' · não suportado' : ''); ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </label>
-                    <div class="slot-fields">
-                        <label>Ativo-objeto
-                            <select name="asset_id" id="position-asset" required>
-                                <option value="">Selecione</option>
-                                <?php foreach ($assets as $asset): ?>
-                                    <option value="<?php echo (int) $asset['id']; ?>"><?php echo htmlspecialchars((string) $asset['symbol'], ENT_QUOTES, 'UTF-8'); ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </label>
-                        <label>Quantidade-base
-                            <input type="number" min="1" max="100000" step="1" name="base_quantity" id="position-base" value="1" required>
-                        </label>
-                        <label>Execução
-                            <input type="datetime-local" name="executed_at" id="position-executed-at" value="<?php echo date('Y-m-d\\TH:i'); ?>" required>
-                        </label>
-                        <label>Moeda
-                            <input name="currency" id="position-currency" value="BRL" maxlength="3" required>
-                        </label>
-                        <label>Corretora
-                            <input name="broker" id="position-broker" maxlength="120">
-                        </label>
-                        <label>Custos gerais
-                            <input type="number" name="general_costs" id="position-general-costs" min="0" step="0.000001" value="0">
-                        </label>
-                    </div>
-                    <label>Nome da posição (opcional)
-                        <input name="name" id="position-name" maxlength="120" placeholder="Usa o nome do modelo se ficar vazio">
-                    </label>
-                    <div id="position-slots" class="leg-stack"><p class="muted">Escolha o modelo para abrir os campos de cada perna.</p></div>
-                    <label>Observações
-                        <textarea name="notes" id="position-notes" rows="2"></textarea>
-                    </label>
-                    <label class="checkline">
-                        <input type="checkbox" name="confirm_classification" value="1" id="confirm-classification">
-                        Confirmo o registro mesmo se a classificação inferida divergir ou não puder ser reconhecida.
-                    </label>
-                    <div class="finance-summary" aria-live="polite">
-                        <div class="finance-metric"><span>Débito bruto</span><strong id="position-debit">—</strong></div>
-                        <div class="finance-metric"><span>Crédito bruto</span><strong id="position-credit">—</strong></div>
-                        <div class="finance-metric"><span>Custos estimados</span><strong id="position-costs">—</strong></div>
-                        <div class="finance-metric"><span>Fluxo inicial (não é lucro)</span><strong id="position-flow">—</strong></div>
-                    </div>
-                    <p id="position-preview" class="muted" aria-live="polite">A prévia é estimativa; backend revalida titularidade, proporções e restrições antes de gravar.</p>
-                    <button type="submit">Registrar todas as pernas</button>
-                </form>
-            </section>
-
             <details class="card">
-                <summary>Compatibilidade: estratégias legadas</summary>
-            <section class="card">
-                <h2>Editar cadastro antigo de estratégia</h2>
+                <summary>Compatibilidade: cadastro legado de estratégia</summary>
+                <section>
+                <h2>Estratégia legada (não usada pela boleta nova)</h2>
                 <form method="POST" action="/registros/estrategias" id="strategy-form">
                     <input type="hidden" name="_csrf_token" value="<?php echo htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8'); ?>">
                     <input type="hidden" name="strategy_id" id="strategy-id" value="">
@@ -535,11 +494,12 @@
                         renderStrategy([]);
                     })();
                 </script>
-            </section>
+                </section>
             </details>
 
             <section class="card">
-                <h2>Registrar operação avulsa</h2>
+                <h2>Lançamento avulso</h2>
+                <p class="muted">Use apenas para executar uma única perna. Para estratégias multi-perna, use a boleta acima.</p>
                 <form method="POST" action="/registros/operacoes">
                     <input type="hidden" name="_csrf_token" value="<?php echo htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8'); ?>">
                     <label>
@@ -571,14 +531,13 @@
                         <input type="number" step="0.01" min="0" name="costs" value="0">
                     </label>
                     <label>
-                        Tipo de operação
+                        Intenção da execução
                         <select name="operation_kind">
-                            <option value="TRADE">Trade</option>
-                            <option value="OPEN">Abertura</option>
-                            <option value="CLOSE">Fechamento</option>
-                            <option value="PARTIAL_CLOSE">Fechamento parcial</option>
-                            <option value="REVERSAL">Inversão</option>
-                            <option value="ADJUSTMENT">Ajuste</option>
+                            <option value="TRADE">Execução normal (compensa posição oposta primeiro)</option>
+                            <option value="OPEN">Apenas abrir/aumentar</option>
+                            <option value="CLOSE">Encerrar toda a posição do contrato</option>
+                            <option value="PARTIAL_CLOSE">Encerrar parcialmente</option>
+                            <option value="REVERSAL">Inverter a posição existente</option>
                         </select>
                     </label>
                     <label>
@@ -593,28 +552,6 @@
                 </form>
             </section>
         </div>
-
-        <section class="card" style="margin-top:28px;">
-            <h2>Posições estruturadas registradas</h2>
-            <?php if ($structuredPositions === []): ?>
-                <p class="muted">Nenhuma posição estruturada registrada ainda. Registre uma pela ficha acima.</p>
-            <?php else: ?>
-                <div class="structured-list">
-                    <?php foreach ($structuredPositions as $position): ?>
-                        <div class="structured-row">
-                            <strong><?php echo htmlspecialchars((string) $position['strategy'], ENT_QUOTES, 'UTF-8'); ?> · <?php echo htmlspecialchars((string) $position['asset_symbol'], ENT_QUOTES, 'UTF-8'); ?></strong>
-                            <span class="pill"><?php echo htmlspecialchars((string) $position['status'], ENT_QUOTES, 'UTF-8'); ?></span>
-                            <p class="muted"><?php echo htmlspecialchars((string) $position['name'], ENT_QUOTES, 'UTF-8'); ?> · <?php echo (int) $position['base_quantity']; ?> lote(s)-base · fluxo inicial <?php echo htmlspecialchars((string) $position['initial_kind'], ENT_QUOTES, 'UTF-8'); ?> <?php echo number_format((float) $position['initial_cash_flow'], 2, ',', '.'); ?></p>
-                            <details>
-                                <summary>Ver pernas e classificação</summary>
-                                <p>Declarada: <?php echo htmlspecialchars((string) $position['strategy'], ENT_QUOTES, 'UTF-8'); ?> · Inferida: <?php echo htmlspecialchars((string) ($position['inferred_strategy'] ?? $position['classification_status']), ENT_QUOTES, 'UTF-8'); ?></p>
-                                <ul><?php foreach ($position['legs'] as $leg): ?><li><?php echo htmlspecialchars((string) $leg['description'], ENT_QUOTES, 'UTF-8'); ?> · aberta: <?php echo (int) $leg['open_quantity']; ?></li><?php endforeach; ?></ul>
-                            </details>
-                        </div>
-                    <?php endforeach; ?>
-                </div>
-            <?php endif; ?>
-        </section>
 
         <div class="card" style="margin-top: 28px;">
             <h2>Registros recentes</h2>
@@ -648,300 +585,129 @@
     </div>
     <script>
         (() => {
-            'use strict';
-            const templates = <?php echo json_encode(array_values((array) $strategyTemplates), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
-            const contracts = <?php echo json_encode(array_values((array) $contracts), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
-            const oldInput = <?php echo json_encode(is_array($oldInput ?? null) ? $oldInput : [], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
-            const formContext = <?php echo json_encode($formContext ?? null, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
-            const ownUserId = <?php echo (int) ($user['id'] ?? 0); ?>;
-            const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
-            const money = value => new Intl.NumberFormat('pt-BR', {style:'currency', currency:'BRL'}).format(Number(value) || 0);
+            const templates = <?php echo json_encode(array_values((array) ($strategyTemplates ?? [])), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+            const contracts = <?php echo json_encode(array_values((array) ($contracts ?? [])), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+            const form = document.getElementById('trade-ticket');
+            const templateSelect = document.getElementById('ticket-template');
+            const assetSelect = document.getElementById('ticket-asset');
+            const legsContainer = document.getElementById('ticket-legs');
+            const quantityInput = document.getElementById('ticket-quantity');
+            const generalCostsInput = document.getElementById('ticket-general-costs');
+            const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({
+                '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+            })[character]);
+            const currency = value => new Intl.NumberFormat('pt-BR', {
+                style:'currency', currency:'BRL'
+            }).format(Number.isFinite(value) ? value : 0);
+            const selectedTemplate = () => templates.find(item => Number(item.id) === Number(templateSelect.value));
 
-            const templateForm = document.getElementById('template-form');
-            const templateSlots = document.getElementById('template-slots');
-            const templateConstraints = document.getElementById('template-constraints');
-            let templateSlotCount = 0;
-            let templateConstraintCount = 0;
-            const slotNames = () => Array.from(templateSlots.querySelectorAll('[name$="[slot_key]"]')).map(input => input.value).filter(Boolean);
-
-            function addTemplateSlot(slot = {}) {
-                const index = templateSlotCount++;
-                const row = document.createElement('div');
-                row.className = 'template-slot';
-                row.innerHTML = `
-                    <div class="slot-fields">
-                        <label class="mini-label">Chave
-                            <input name="slots[${index}][slot_key]" value="${escapeHtml(slot.slot_key || 'slot_' + (index + 1))}" pattern="[a-z][a-z0-9_]{0,39}" required>
-                        </label>
-                        <label class="mini-label">Rótulo
-                            <input name="slots[${index}][label]" value="${escapeHtml(slot.label || '')}" maxlength="120" required>
-                        </label>
-                        <label class="mini-label">Instrumento
-                            <select name="slots[${index}][instrument_type]" class="slot-instrument">
-                                <option value="OPTION" ${slot.instrument_type !== 'ACTION' ? 'selected' : ''}>Opção</option>
-                                <option value="ACTION" ${slot.instrument_type === 'ACTION' ? 'selected' : ''}>Ativo-objeto (não registrável ainda)</option>
-                            </select>
-                        </label>
-                        <label class="mini-label">Lado
-                            <select name="slots[${index}][side]">
-                                <option value="BUY" ${slot.side !== 'SELL' ? 'selected' : ''}>Compra</option>
-                                <option value="SELL" ${slot.side === 'SELL' ? 'selected' : ''}>Venda</option>
-                            </select>
-                        </label>
-                        <label class="mini-label">Tipo
-                            <select name="slots[${index}][option_type]" class="slot-option-type">
-                                <option value="CALL" ${slot.option_type !== 'PUT' ? 'selected' : ''}>Call</option>
-                                <option value="PUT" ${slot.option_type === 'PUT' ? 'selected' : ''}>Put</option>
-                            </select>
-                        </label>
-                        <label class="mini-label">Proporção
-                            <input type="number" name="slots[${index}][ratio]" min="1" max="100" step="1" value="${Number(slot.ratio || 1)}" required>
-                        </label>
-                        <div class="actions-row">
-                            <button type="button" class="button-secondary move-template-slot" data-direction="-1" aria-label="Mover slot para cima">↑</button>
-                            <button type="button" class="button-secondary move-template-slot" data-direction="1" aria-label="Mover slot para baixo">↓</button>
-                            <button type="button" class="button-secondary duplicate-template-slot">Duplicar</button>
-                            <button type="button" class="button-secondary remove-template-slot">Remover</button>
-                        </div>
-                    </div>`;
-                const instrument = row.querySelector('.slot-instrument');
-                const type = row.querySelector('.slot-option-type');
-                const keyInput = row.querySelector('[name$="[slot_key]"]');
-                let previousKey = keyInput.value;
-                keyInput.addEventListener('change', () => {
-                    templateConstraints.querySelectorAll('.constraint-slots option').forEach(option => {
-                        if (option.value === previousKey) option.value = keyInput.value;
-                    });
-                    previousKey = keyInput.value;
-                    refreshConstraintSlotOptions();
-                });
-                const sync = () => { type.disabled = instrument.value === 'ACTION'; };
-                instrument.addEventListener('change', sync);
-                row.querySelectorAll('.move-template-slot').forEach(button => button.addEventListener('click', () => {
-                    const sibling = Number(button.dataset.direction) < 0 ? row.previousElementSibling : row.nextElementSibling;
-                    if (!sibling) return;
-                    if (Number(button.dataset.direction) < 0) templateSlots.insertBefore(row, sibling);
-                    else templateSlots.insertBefore(sibling, row);
-                }));
-                row.querySelector('.duplicate-template-slot').addEventListener('click', () => {
-                    const copy = Object.fromEntries(Array.from(row.querySelectorAll('input,select')).map(field => [field.name.match(/\]\[([^\]]+)\]$/)?.[1], field.value]));
-                    const existing = new Set(slotNames());
-                    let key = String(copy.slot_key || 'slot').slice(0, 33) + '_copy';
-                    let suffix = 2;
-                    while (existing.has(key)) key = String(copy.slot_key || 'slot').slice(0, 30) + '_copy_' + suffix++;
-                    copy.slot_key = key;
-                    addTemplateSlot(copy);
-                });
-                row.querySelector('.remove-template-slot').addEventListener('click', () => {
-                    row.remove();
-                    refreshConstraintSlotOptions();
-                });
-                templateSlots.appendChild(row);
-                sync();
-                refreshConstraintSlotOptions();
-            }
-
-            function refreshConstraintSlotOptions() {
-                const names = slotNames();
-                templateConstraints.querySelectorAll('.constraint-slots').forEach(select => {
-                    const selected = Array.from(select.selectedOptions).map(option => option.value);
-                    select.innerHTML = names.map(key => `<option value="${escapeHtml(key)}" ${selected.includes(key) ? 'selected' : ''}>${escapeHtml(key)}</option>`).join('');
-                });
-            }
-
-            function addConstraint(constraint = {}) {
-                const index = templateConstraintCount++;
-                const row = document.createElement('div');
-                row.className = 'template-slot slot-fields';
-                const selected = Array.isArray(constraint.slots) ? constraint.slots : [];
-                const names = slotNames();
-                row.innerHTML = `
-                    <label class="mini-label">Regra
-                        <select name="constraints[${index}][type]">
-                            ${[['strike_order','Ordem de strikes'],['same_strike','Mesmo strike'],['same_expiration','Mesmo vencimento'],['different_expiration','Vencimentos diferentes'],['same_asset','Mesmo ativo-objeto']].map(([value,label]) => `<option value="${value}" ${constraint.type === value ? 'selected' : ''}>${label}</option>`).join('')}
-                        </select>
-                    </label>
-                    <label class="mini-label">Slots (Ctrl/⌘ para selecionar vários)
-                        <select multiple class="constraint-slots" name="constraints[${index}][slots][]">
-                            ${names.map(key => `<option value="${escapeHtml(key)}" ${selected.includes(key) ? 'selected' : ''}>${escapeHtml(key)}</option>`).join('')}
-                        </select>
-                    </label>
-                    <button type="button" class="button-secondary remove-template-constraint">Remover regra</button>`;
-                row.querySelector('.remove-template-constraint').addEventListener('click', () => row.remove());
-                templateConstraints.appendChild(row);
-            }
-
-            function loadTemplate(template, editing = false) {
-                document.getElementById('template-id').value = editing && template.user_id === ownUserId ? template.id : '';
-                document.getElementById('template-name').value = editing ? template.name : template.name + ' (meu modelo)';
-                document.getElementById('template-description').value = template.description || '';
-                document.getElementById('template-submit').textContent = editing && template.user_id === ownUserId ? 'Salvar alterações' : 'Salvar cópia como modelo';
-                templateSlots.innerHTML = '';
-                templateConstraints.innerHTML = '';
-                templateSlotCount = 0;
-                templateConstraintCount = 0;
-                (template.slots || []).forEach(addTemplateSlot);
-                (template.constraints || []).forEach(addConstraint);
-            }
-
-            document.getElementById('add-template-slot').addEventListener('click', () => addTemplateSlot());
-            document.getElementById('add-template-constraint').addEventListener('click', () => addConstraint());
-            document.getElementById('template-source').addEventListener('change', event => {
-                const template = templates.find(item => Number(item.id) === Number(event.target.value));
-                if (template) loadTemplate(template, false);
-                else {
-                    document.getElementById('template-id').value = '';
-                    document.getElementById('template-name').value = '';
-                    document.getElementById('template-description').value = '';
-                    document.getElementById('template-submit').textContent = 'Salvar modelo';
-                    templateSlots.innerHTML = '';
-                    templateConstraints.innerHTML = '';
-                    templateSlotCount = 0;
-                    templateConstraintCount = 0;
-                }
-            });
-            document.querySelectorAll('.load-template').forEach(button => button.addEventListener('click', () => {
-                const template = templates.find(item => Number(item.id) === Number(button.dataset.id));
-                if (template) loadTemplate(template, true);
-                templateForm.scrollIntoView({behavior:'smooth', block:'start'});
-            }));
-            if (formContext === 'template' && Array.isArray(oldInput.slots)) {
-                document.getElementById('template-id').value = oldInput.template_id || '';
-                document.getElementById('template-name').value = oldInput.name || '';
-                document.getElementById('template-description').value = oldInput.description || '';
-                templateSlots.innerHTML = '';
-                templateConstraints.innerHTML = '';
-                templateSlotCount = 0;
-                templateConstraintCount = 0;
-                oldInput.slots.forEach(addTemplateSlot);
-                (oldInput.constraints || []).forEach(addConstraint);
-            }
-
-            const positionTemplate = document.getElementById('position-template');
-            const positionSlots = document.getElementById('position-slots');
-            const assetSelect = document.getElementById('position-asset');
-            function renderPositionSlots() {
-                const template = templates.find(item => Number(item.id) === Number(positionTemplate.value));
-                if (!template) {
-                    positionSlots.innerHTML = '<p class="muted">Escolha o modelo para abrir os campos de cada perna.</p>';
-                    updatePositionPreview();
-                    return;
-                }
-                positionSlots.innerHTML = '';
-                (template.slots || []).forEach((slot, index) => {
-                    const row = document.createElement('div');
-                    row.className = 'position-slot';
-                    if (slot.instrument_type !== 'OPTION') {
-                        row.innerHTML = `<strong>${escapeHtml(slot.label)}</strong><p class="muted">Ativo-objeto ainda não tem suporte no ledger; este modelo não pode ser registrado.</p>`;
-                        positionSlots.appendChild(row);
-                        return;
-                    }
-                    const options = contracts.map(contract => `<option value="${Number(contract.id)}" data-asset="${Number(contract.asset_id)}" data-type="${escapeHtml(contract.option_type)}">${escapeHtml(contract.code)}</option>`).join('');
-                    row.innerHTML = `
-                        <input type="hidden" name="legs[${index}][slot_key]" value="${escapeHtml(slot.slot_key)}">
-                        <strong>${escapeHtml(slot.label)}</strong>
-                        <span class="derived">${slot.side === 'BUY' ? 'Compra' : 'Venda'} de ${escapeHtml(slot.option_type)} · quantidade = base × ${Number(slot.ratio)}</span>
-                        <div class="slot-fields">
-                            <label class="mini-label">Contrato
-                                <select name="legs[${index}][option_contract_id]" class="position-contract" required>
-                                    <option value="">Selecione contrato</option>${options}
-                                </select>
-                            </label>
-                            <label class="mini-label">Preço de execução
-                                <input type="number" name="legs[${index}][unit_price]" min="0" step="0.000001" required>
-                            </label>
-                            <label class="mini-label">Custos desta perna
-                                <input type="number" name="legs[${index}][costs]" min="0" step="0.000001" value="0">
-                            </label>
-                        </div>
-                        <span class="derived contract-derived">Strike, vencimento e multiplicador serão derivados do contrato escolhido.</span>
-                        <span class="derived position-description"></span>`;
-                    const contractSelect = row.querySelector('.position-contract');
-                    contractSelect.addEventListener('change', () => {
-                        const contract = contracts.find(item => Number(item.id) === Number(contractSelect.value));
-                        row.querySelector('.contract-derived').textContent = contract
-                            ? `Strike ${contract.strike_price} · venc. ${contract.expiration_date} · multiplicador ${contract.contract_multiplier}`
-                            : 'Strike, vencimento e multiplicador serão derivados do contrato escolhido.';
-                        updatePositionPreview();
-                    });
-                    row.querySelectorAll('input').forEach(input => input.addEventListener('input', updatePositionPreview));
-                    positionSlots.appendChild(row);
-                });
-                filterPositionContracts();
-                updatePositionPreview();
-            }
-
-            function filterPositionContracts() {
-                const assetId = Number(assetSelect.value);
-                positionSlots.querySelectorAll('.position-contract').forEach(select => {
-                    const row = select.closest('.position-slot');
-                    const typeText = row.querySelector('.derived').textContent;
-                    const requiredType = typeText.includes('CALL') ? 'CALL' : 'PUT';
-                    Array.from(select.options).forEach(option => {
-                        if (!option.value) return;
-                        option.hidden = Number(option.dataset.asset) !== assetId || option.dataset.type !== requiredType;
-                        if (option.selected && option.hidden) select.value = '';
-                    });
-                });
-                updatePositionPreview();
-            }
-
-            function updatePositionPreview() {
+            function updatePreview() {
                 let debit = 0;
                 let credit = 0;
-                let costs = Number(document.getElementById('position-general-costs').value) || 0;
-                const base = Number(document.getElementById('position-base').value) || 0;
-                const descriptions = [];
-                positionSlots.querySelectorAll('.position-slot').forEach(row => {
-                    const select = row.querySelector('.position-contract');
-                    if (!select) return;
-                    const slotKey = row.querySelector('input[type="hidden"]').value;
-                    const template = templates.find(item => Number(item.id) === Number(positionTemplate.value));
-                    const slot = (template?.slots || []).find(item => item.slot_key === slotKey);
-                    const contract = contracts.find(item => Number(item.id) === Number(select.value));
-                    const price = Number(row.querySelector('[name$="[unit_price]"]').value) || 0;
-                    const legCosts = Number(row.querySelector('[name$="[costs]"]').value) || 0;
+                let costs = Number(generalCostsInput.value) || 0;
+                legsContainer.querySelectorAll('[data-ticket-leg]').forEach(row => {
+                    const side = row.dataset.side;
+                    const quantity = Math.max(0, Number(row.dataset.ratio) * (Number(quantityInput.value) || 0));
+                    const contract = contracts.find(item => Number(item.id) === Number(row.querySelector('[data-contract]').value));
+                    const multiplier = Number(contract?.contract_multiplier) || 1;
+                    const price = Number(row.querySelector('[data-price]').value) || 0;
+                    const legCosts = Number(row.querySelector('[data-costs]').value) || 0;
+                    if (side === 'BUY') debit += price * quantity * multiplier;
+                    else credit += price * quantity * multiplier;
                     costs += legCosts;
-                    if (!slot || !contract) return;
-                    const quantity = base * Number(slot.ratio);
-                    const amount = price * quantity * Number(contract.contract_multiplier);
-                    if (slot.side === 'BUY') debit += amount; else credit += amount;
-                    descriptions.push(`${slot.side === 'BUY' ? 'Comprar' : 'Vender'} ${quantity} ${slot.option_type} ${contract.code}, strike ${contract.strike_price}, venc. ${contract.expiration_date}`);
-                    row.querySelector('.position-description').textContent = descriptions[descriptions.length - 1];
+                    row.querySelector('[data-quantity-preview]').textContent = `${quantity} contrato(s)`;
                 });
-                const net = credit - debit;
-                document.getElementById('position-debit').textContent = money(debit);
-                document.getElementById('position-credit').textContent = money(credit);
-                document.getElementById('position-costs').textContent = money(costs);
-                document.getElementById('position-flow').textContent = `${net < 0 ? 'Débito' : net > 0 ? 'Crédito' : 'Neutro'} · ${money(net)}`;
-                document.getElementById('position-preview').textContent = descriptions.length
-                    ? descriptions.join(' · ')
-                    : 'Selecione um contrato para cada perna. O fluxo é caixa inicial, não lucro.';
+                document.getElementById('ticket-debit').textContent = currency(debit);
+                document.getElementById('ticket-credit').textContent = currency(credit);
+                document.getElementById('ticket-costs').textContent = currency(costs);
+                document.getElementById('ticket-flow').textContent = currency(credit - debit);
             }
-            positionTemplate.addEventListener('change', renderPositionSlots);
-            assetSelect.addEventListener('change', filterPositionContracts);
-            ['position-base','position-general-costs'].forEach(id => document.getElementById(id).addEventListener('input', updatePositionPreview));
 
-            if (oldInput.strategy_template_id) {
-                positionTemplate.value = String(oldInput.strategy_template_id);
-                renderPositionSlots();
-                const fieldIds = {asset_id:'position-asset',base_quantity:'position-base',executed_at:'position-executed-at',currency:'position-currency',broker:'position-broker',general_costs:'position-general-costs',name:'position-name',notes:'position-notes'};
-                for (const key of Object.keys(fieldIds)) {
-                    const field = document.getElementById(fieldIds[key]);
-                    if (field && oldInput[key] !== undefined) field.value = oldInput[key];
+            function renderLegs() {
+                const template = selectedTemplate();
+                const assetId = Number(assetSelect.value);
+                if (!template || !assetId) {
+                    legsContainer.innerHTML = '<p class="muted">Selecione a estratégia e o ativo para montar a boleta.</p>';
+                    updatePreview();
+                    return;
                 }
-                if (oldInput.confirm_classification) document.getElementById('confirm-classification').checked = true;
-                filterPositionContracts();
-                (oldInput.legs || []).forEach((leg, index) => {
-                    const row = positionSlots.querySelectorAll('.position-slot')[index];
-                    if (!row) return;
-                    for (const key of ['option_contract_id','unit_price','costs']) {
-                        const field = row.querySelector(`[name$="[${key}]"]`);
-                        if (field && leg[key] !== undefined) field.value = leg[key];
-                    }
-                });
-                updatePositionPreview();
+                legsContainer.innerHTML = template.slots.map((slot, index) => {
+                    const available = contracts.filter(contract =>
+                        Number(contract.asset_id) === assetId
+                        && String(contract.option_type).toUpperCase() === String(slot.option_type).toUpperCase()
+                        && String(contract.status || 'ACTIVE').toUpperCase() === 'ACTIVE'
+                    );
+                    const options = available.map(contract =>
+                        `<option value="${Number(contract.id)}">${escapeHtml(contract.code)} · strike ${escapeHtml(contract.strike_price)} · ${escapeHtml(contract.expiration_date)}</option>`
+                    ).join('');
+                    return `<fieldset class="leg-row" data-ticket-leg data-side="${escapeHtml(slot.side)}" data-ratio="${Number(slot.ratio) || 1}">
+                        <legend>${escapeHtml(slot.label)} · ${slot.side === 'BUY' ? 'Compra' : 'Venda'} ${escapeHtml(slot.option_type)} × ${Number(slot.ratio) || 1}</legend>
+                        <input type="hidden" name="legs[${index}][slot_key]" value="${escapeHtml(slot.slot_key)}">
+                        <label class="mini-label">Contrato
+                            <select name="legs[${index}][option_contract_id]" data-contract required>
+                                <option value="">Selecione</option>${options}
+                            </select>
+                        </label>
+                        <label class="mini-label">Prêmio unitário
+                            <input type="number" name="legs[${index}][unit_price]" data-price min="0" step="0.000001" required>
+                        </label>
+                        <label class="mini-label">Custos desta perna
+                            <input type="number" name="legs[${index}][costs]" data-costs min="0" step="0.000001" value="0" required>
+                        </label>
+                        <span class="muted" data-quantity-preview></span>
+                    </fieldset>`;
+                }).join('');
+                legsContainer.querySelectorAll('input,select').forEach(field => field.addEventListener('input', updatePreview));
+                updatePreview();
             }
+
+            templateSelect.addEventListener('change', renderLegs);
+            assetSelect.addEventListener('change', renderLegs);
+            quantityInput.addEventListener('input', updatePreview);
+            generalCostsInput.addEventListener('input', updatePreview);
+            form.addEventListener('submit', async event => {
+                event.preventDefault();
+                if (!selectedTemplate() || !assetSelect.value || legsContainer.querySelectorAll('[data-ticket-leg]').length === 0) {
+                    legsContainer.scrollIntoView({behavior:'smooth', block:'center'});
+                    return;
+                }
+                const submit = form.querySelector('[type="submit"]');
+                const error = document.getElementById('ticket-error');
+                submit.disabled = true;
+                error.hidden = true;
+                try {
+                    const data = Object.fromEntries(new FormData(form).entries());
+                    data.strategy_template_id = Number(data.strategy_template_id);
+                    data.asset_id = Number(data.asset_id);
+                    data.base_quantity = Number(data.base_quantity);
+                    data.general_costs = Number(data.general_costs);
+                    data.legs = [...legsContainer.querySelectorAll('[data-ticket-leg]')].map(row => ({
+                        slot_key: row.querySelector('[name$="[slot_key]"]').value,
+                        option_contract_id: Number(row.querySelector('[data-contract]').value),
+                        unit_price: Number(row.querySelector('[data-price]').value),
+                        costs: Number(row.querySelector('[data-costs]').value),
+                    }));
+                    data.confirm_classification = form.elements.confirm_classification.checked;
+                    const response = await fetch('/api/structured-positions', {
+                        method:'POST',
+                        credentials:'same-origin',
+                        headers:{Accept:'application/json','Content-Type':'application/json'},
+                        body:JSON.stringify(data),
+                    });
+                    const payload = await response.json();
+                    if (!response.ok || payload.success === false) {
+                        const details = Object.values(payload.errors || {}).join(' ');
+                        throw new Error([payload.message, details].filter(Boolean).join(' '));
+                    }
+                    window.location.reload();
+                } catch (exception) {
+                    error.textContent = exception.message || 'Não foi possível registrar esta boleta.';
+                    error.hidden = false;
+                    error.scrollIntoView({behavior:'smooth', block:'center'});
+                } finally {
+                    submit.disabled = false;
+                }
+            });
         })();
     </script>
 </body>

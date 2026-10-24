@@ -101,6 +101,7 @@ final class StructuredPositionTest extends TestCase
         self::assertTrue($result['success'], json_encode($result));
         self::assertSame([3, 6, 3], array_column($result['data']['legs'], 'quantity'));
         self::assertSame(4.0, $result['data']['initial_costs']);
+        self::assertSame([1.75, 1.5, 0.75], array_column($result['data']['legs'], 'costs'));
         $updated = $templates->update(1, (int) $created['data']['id'], [
             'name' => 'Fly alterada',
             'slots' => $created['data']['slots'],

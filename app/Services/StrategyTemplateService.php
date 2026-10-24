@@ -45,6 +45,11 @@ final class StrategyTemplateService
         if ($existing === null || $existing['user_id'] !== $userId || $existing['origin'] !== 'USER') {
             return ['success' => false, 'status' => 404, 'message' => 'Modelo próprio não encontrado.'];
         }
+        $position = $this->pdo->prepare('SELECT 1 FROM structured_positions WHERE strategy_template_id = :template_id AND user_id = :user_id LIMIT 1');
+        $position->execute(['template_id' => $id, 'user_id' => $userId]);
+        if ($position->fetchColumn()) {
+            return ['success' => false, 'status' => 409, 'message' => 'Este modelo já registra posições e não pode mudar suas regras. Clone-o para criar uma nova versão.'];
+        }
         $used = $this->pdo->prepare('SELECT 1 FROM structured_positions WHERE strategy_template_id = :template_id AND user_id = :user_id LIMIT 1');
         $used->execute(['template_id' => $id, 'user_id' => $userId]);
         if ($used->fetchColumn()) {

@@ -1,18 +1,25 @@
 # Regras financeiras
 
-## Convenções implementadas
+## Registro de operações
 
-## Diretrizes previstas
+- Compra (BUY) gera fluxo bruto negativo; venda (SELL), positivo. O fluxo usa preço executado × quantidade × multiplicador do contrato cadastrado.
+- `TRADE` compensa a posição oposta antes de abrir eventual excedente.
+- `OPEN` só abre/aumenta e é recusado se reduzir lotes existentes.
+- `CLOSE` deve encerrar toda a posição líquida; `PARTIAL_CLOSE` encerra uma fração disponível.
+- `REVERSAL` precisa ser contrária e maior que a posição aberta; a parte necessária fecha e o excedente abre a posição inversa.
+- Encerramentos alocam quantidade entre lotes e reconhecem resultado realizado com custos de entrada/saída rateados.
+- Uma perna estruturada só pode ser fechada ou rolada pelas operações vinculadas à posição; não pode ser alterada como lançamento avulso.
 
-- Black-Scholes-Merton com dividend yield contínuo.
-- Dias corridos / 365.
-- Valores persistidos em colunas numéricas; entradas são validadas antes da escrita.
-- Distinção entre fluxo bruto, custos, resultado realizado e valor de mercado.
-- BUY produz débito e SELL produz crédito. Custos permanecem separados e custos gerais são alocados entre pernas.
-- Payoff determinístico no vencimento soma o valor intrínseco por perna, quantidade, multiplicador, sinal e custos de entrada. Break-even e limites são retornados para opções com vencimento comum.
-- Após encerramento parcial ou rolagem, a exposição no vencimento considera somente as quantidades ainda abertas; o resultado realizado é exibido separadamente e não é somado ao payoff.
-- Vencimentos diferentes, ausência de pernas abertas e instrumentos de ativo-objeto não recebem payoff numérico; a limitação é informada explicitamente.
+## Boletas multi-pernas
 
-## Importante
+- Cada slot valida contrato pertencente ao usuário, ativo-objeto, tipo de opção e restrições de strike/vencimento.
+- A quantidade executada por slot é a quantidade-base multiplicada pela proporção do modelo.
+- Custos específicos pertencem à perna informada. Custos gerais são distribuídos proporcionalmente a quantidade de contratos × multiplicador; os valores são preservados como custos, sem alterar o fluxo bruto.
+- A gravação cria posição, operações, vínculos, histórico e auditoria em transação única.
+- O dashboard separa fluxo inicial, resultado realizado, resultado não realizado e exposição das pernas ainda abertas. O payoff de exposição não soma resultado realizado.
 
-O módulo TypeScript em `src/financial-engine` continua fornecendo Black-Scholes-Merton, reconhecimento e payoff em testes próprios. O fluxo PHP de posições estruturadas mantém hoje uma implementação separada de reconhecimento/payoff e não invoca o pacote TypeScript no runtime; a paridade entre as implementações permanece uma lacuna. Resultados são cálculos de modelo, não garantias de preço, execução ou aconselhamento financeiro.
+## Limitações de cálculo
+
+O motor TypeScript em `src/financial-engine` fornece Black-Scholes e payoff como biblioteca separada. O fluxo atual de posições estruturadas em PHP mantém uma implementação própria e não integra o TypeScript em runtime; paridade precisa de validação automatizada.
+
+Payoff com vencimentos diferentes, posições sem pernas abertas e instrumentos sem suporte no ledger não recebem resultado numérico. Resultados de modelo não garantem preço de mercado, execução ou lucro.

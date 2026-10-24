@@ -10,9 +10,9 @@ Recursos: assets, option-contracts, strategies.
 - POST /api/{recurso}
 - PUT /api/{recurso}/{id} ou PATCH /api/{recurso}/{id}
 - Desativação lógica por status INACTIVE.
-- Ativos, contratos e estratégias têm escopo por usuário; um usuário não pode registrar operações com contratos de outra conta.
+- Ativos, contratos e estratégias só podem ser consultados e utilizados pelo usuário proprietário.
 
-## Modelos e posições estruturadas
+## Boleta multi-pernas
 
 - GET/POST `/api/strategy-templates`
 - GET/PUT `/api/strategy-templates/{id}`
@@ -23,15 +23,9 @@ Recursos: assets, option-contracts, strategies.
 - POST `/api/structured-positions/{uuid}/roll`
 - GET `/api/unstructured-operations`
 
-Modelos contêm slots com `slot_key`, instrumento, lado, tipo de opção, proporção e restrições. Modelos do catálogo podem ser clonados; modelos legados com conteúdo inválido ficam disponíveis para revisão, mas não podem ser usados antes de corrigidos.
+O endpoint de registro recebe `strategy_template_id`, `asset_id`, `base_quantity`, `executed_at`, `general_costs` e `legs`. Cada perna deve conter `slot_key`, `option_contract_id`, `unit_price` e `costs`. Contratos, ativo, tipo da opção, strikes, vencimentos e proporções são validados pelo servidor; todas as pernas são gravadas numa transação. Se a classificação divergir ou não for reconhecida, a API pede confirmação explícita antes de persistir.
 
-O registro de posição recebe `strategy_template_id`, `asset_id`, `base_quantity`, `executed_at`, `currency`, `broker`, `general_costs` e uma lista `legs`. Cada item inclui `slot_key`, `option_contract_id`, `unit_price` e custos opcionais. O backend verifica propriedade dos dados, ativo, tipo de opção, quantidade proporcional e restrições do modelo antes de criar qualquer operação.
-
-Se a classificação inferida não for reconhecida ou divergir do modelo, o endpoint retorna HTTP 409 e exige `confirm_classification: true` para persistir. O registro grava todas as pernas, vínculos e trilha de auditoria em uma transação.
-
-Encerramento e rolagem recebem `lots` (lotes-base) e uma lista `legs` com `slot_key`, preço unitário e custos; rolagem também requer `option_contract_id` para cada novo contrato. A posição só pode ser fechada/rolada enquanto as pernas estiverem alinhadas em lotes completos. O fluxo das rolagens é caixa, não lucro automático.
-
-O catálogo limita algumas estruturas a registro e classificação. Payoff é indisponível para vencimentos diferentes e para pernas de ativo-objeto; nenhum preço, volatilidade ou contrato de mercado é presumido pelo catálogo.
+A tela `/registros` oferece a boleta agrupada e prévia de débito, crédito, custos e fluxo líquido. Operações multi-pernas aparecem agrupadas na tela de registros e no painel. Custos gerais são distribuídos entre as pernas em proporção à quantidade de contratos e multiplicadores; custos informados por perna ficam atribuídos àquela perna.
 
 ## Operações e posições
 
@@ -48,7 +42,7 @@ Exemplo de operação:
 
 Campos obrigatórios: option_contract_id, side (BUY/SELL), quantity (inteiro positivo), unit_price (não negativo). costs é opcional e não negativo. operation_kind aceita TRADE, OPEN, CLOSE, PARTIAL_CLOSE, REVERSAL ou ADJUSTMENT.
 
-CLOSE e PARTIAL_CLOSE exigem quantidade integralmente disponível. REVERSAL exige operação no sentido contrário e quantidade maior que a posição líquida aberta; a parte necessária encerra a posição e o excedente abre a posição inversa. Operações ordinárias opostas podem encerrar a posição existente e abrir o excedente no sentido inverso, exceto quando a alocação atingir uma perna estruturada, que deve ser gerida pelas rotas da posição.
+CLOSE e PARTIAL_CLOSE exigem quantidade integralmente disponível. REVERSAL exige operação no sentido contrário e quantidade maior que a posição líquida aberta; a parte necessária encerra a posição e o excedente abre a posição inversa. TRADE compensa a posição oposta antes de abrir o excedente. OPEN não reduz uma posição oposta. Uma perna estruturada só pode ser encerrada ou rolada pelo fluxo agrupado, nunca por um lançamento avulso.
 
 O fluxo de caixa bruto é -preço × quantidade × multiplicador para BUY e positivo para SELL; custos ficam em campo separado. Resultado realizado é apurado por alocação de encerramentos e desconta custos de entrada/saída atribuídos. Resultado não realizado é null quando não há cotação; com cotação, usa as quantidades abertas e o preço de marcação.
 

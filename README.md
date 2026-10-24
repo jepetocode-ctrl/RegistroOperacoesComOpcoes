@@ -1,29 +1,31 @@
 # RegistroOperacoesComOpcoes
 
-Aplicação para registrar, acompanhar e analisar operações com opções.
+Aplicação para cadastro e acompanhamento de operações com opções, com uma experiência de boleta multi-pernas inspirada em plataformas de trading: selecione uma estratégia, preencha contratos e preços por perna, revise débito/crédito/custos e registre a execução em conjunto.
 
-## Estado da aplicação
+## Registrar uma operação
 
-O projeto mantém um runtime híbrido: Laravel 12 inicializa a aplicação e suas migrações, enquanto rotas, controladores, sessão e persistência financeira existentes continuam usando a camada legada em PHP/PDO. O fluxo de posições estruturadas integra modelos, pernas e operações avulsas sem substituir o ledger financeiro.
+1. Cadastre o ativo e os contratos ativos em `/registros`.
+2. Na seção **Nova operação**, escolha uma estrutura e o ativo-objeto.
+3. Informe lotes-base, contratos, preços executados, custos e horário de execução.
+4. Revise a prévia. O servidor valida novamente titularidade, tipos, strikes, vencimentos e proporções.
+5. A boleta só é salva se todas as pernas forem registradas em uma única transação.
 
-### Posições estruturadas
+As execuções aparecem agrupadas por estratégia, com fluxo inicial separado do resultado realizado e da exposição aberta. Uma operação avulsa continua disponível para uma única perna. Posições multi-pernas não podem ser alteradas usando as ações de operações avulsas.
 
-- Catálogo inicial e modelos próprios com slots, proporções e restrições; modelos legados são convertidos sem descartar o JSON original e marcados para revisão quando necessário.
-- Builder em `/registros` para criar, clonar e editar modelos, selecionar contratos por perna e visualizar fluxo/custos antes do registro.
-- Registro atômico de todas as pernas, titularidade de ativo/contratos, classificação declarada versus inferida, auditoria e compatibilidade com o ledger atual.
-- Dashboard em `/dashboard` com posições agrupadas, pernas, fluxo inicial, resultados, exposição no vencimento e ações de encerramento/rolagem em lotes-base.
-- Operações avulsas seguem em área separada. Operações de uma posição estruturada não podem ser editadas ou encerradas por um formulário avulso.
-- O catálogo oferece suporte de payoff para opções simples, spreads verticais, straddles/strangles, butterflies e iron condor. Outros modelos podem ser registrados, mas são identificados como não reconhecidos ou sem payoff suportado quando aplicável.
-- Ativos-objeto ainda não podem compor o ledger como pernas de `ACTION`; templates dependentes de ações permanecem indisponíveis. Payoff com vencimentos diferentes não é calculado.
+## Domínio e limitações
 
-O motor financeiro TypeScript continua disponível em `src/financial-engine` e possui testes próprios. O payoff de posições estruturadas é atualmente calculado por uma implementação PHP; paridade completa entre os dois motores e a migração do runtime para Laravel nativo permanecem trabalho futuro.
+- O ledger existente continua sendo a fonte das operações, custos e alocações de encerramento.
+- Estratégias têm slots e restrições. Custos gerais são alocados entre slots por quantidade de contratos e multiplicadores; custos específicos continuam na perna informada.
+- Operações e contratos são isolados por usuário.
+- O payoff em vencimento é indisponível para estruturas não reconhecidas, vencimentos diferentes ou pernas de ativo-objeto sem suporte no ledger.
+- O projeto ainda usa runtime híbrido Laravel/PHP legado. O motor TypeScript é independente; a paridade automatizada com o cálculo PHP de posições estruturadas é uma pendência conhecida.
 
 ## Requisitos e execução
 
 - PHP 8.3+
 - Composer 2+
-- SQLite para desenvolvimento/testes; PostgreSQL também é suportado pelo projeto
-- Node.js/npm para compilar e testar `src/financial-engine`
+- SQLite para desenvolvimento/testes; PostgreSQL para produção
+- Node.js/npm para testar o motor financeiro
 
 ```bash
 composer install
@@ -40,5 +42,5 @@ npm test --prefix src/financial-engine
 - [API](docs/API.md)
 - [Banco de dados](docs/DATABASE.md)
 - [Regras financeiras](docs/FINANCIAL_RULES.md)
+- [Arquitetura](docs/ARCHITECTURE.md)
 - [Status do projeto](docs/PROJECT_STATUS.md)
-- [Próximos passos](docs/NEXT_STEPS.md)

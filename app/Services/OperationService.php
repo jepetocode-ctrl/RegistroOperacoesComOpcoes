@@ -80,6 +80,10 @@ final class OperationService
                 $this->pdo->rollBack();
                 return ['success' => false, 'status' => 422, 'message' => 'Quantidade de encerramento excede a posição disponível.'];
             }
+            if ($kind === 'OPEN' && $closeQty > 0) {
+                $this->pdo->rollBack();
+                return ['success' => false, 'status' => 422, 'message' => 'Uma abertura não pode reduzir a posição oposta. Use TRADE para compensar uma posição existente.'];
+            }
             if ($kind === 'CLOSE' && $closeQty !== abs($signedOpen)) {
                 $this->pdo->rollBack();
                 return ['success' => false, 'status' => 422, 'message' => 'O fechamento integral deve encerrar toda a posição líquida do contrato.'];
@@ -96,7 +100,7 @@ final class OperationService
             foreach ($allocation as $item) {
                 if (($item['opening']['structured_position_id'] ?? null) !== null) {
                     $this->pdo->rollBack();
-                    return ['success' => false, 'status' => 422, 'message' => 'Posições estruturadas devem ser encerradas ou roladas pelas ações da própria posição.'];
+                    return ['success' => false, 'status' => 422, 'message' => 'Esta perna pertence a uma operação estruturada. Encerre ou role a posição pelo fluxo de estratégias.'];
                 }
             }
             $strategyId = isset($input['strategy_id']) ? (int)$input['strategy_id'] : null;
@@ -144,9 +148,9 @@ final class OperationService
                 $this->pdo->rollBack();
                 return ['success' => false, 'status' => 404, 'message' => 'Operação não encontrada.'];
             }
-            if (isset($operation['structured_position_id']) && $operation['structured_position_id'] !== null) {
+            if (($operation['structured_position_id'] ?? null) !== null) {
                 $this->pdo->rollBack();
-                return ['success' => false, 'status' => 422, 'message' => 'Operações vinculadas a uma posição estruturada não podem ser editadas; registre encerramento ou rolagem.'];
+                return ['success' => false, 'status' => 422, 'message' => 'Operações vinculadas a estratégias não podem ser editadas isoladamente.'];
             }
 
             $closures = $this->pdo->prepare('SELECT 1 FROM operation_closures WHERE user_id = :user_id AND (opening_operation_id = :opening_id OR closing_operation_id = :closing_id) LIMIT 1');
@@ -186,8 +190,8 @@ final class OperationService
                 }
             }
 
-            $contract = $this->pdo->prepare('SELECT contract_multiplier FROM option_contracts WHERE id = :id');
-            $contract->execute(['id' => (int) $operation['option_contract_id']]);
+            $contract = $this->pdo->prepare('SELECT contract_multiplier FROM option_contracts WHERE id = :id AND user_id = :user_id');
+            $contract->execute(['id' => (int) $operation['option_contract_id'], 'user_id' => $userId]);
             $multiplier = (int) $contract->fetchColumn();
             $side = $data['side'];
             $quantity = (int) $data['quantity'];
@@ -324,10 +328,31 @@ final class OperationService
         $errors = [];
         foreach (['option_contract_id', 'side', 'quantity', 'unit_price'] as $key) if (!isset($input[$key]) || $input[$key] === '') $errors[$key] = 'Campo obrigatório.';
         if (isset($input['side']) && !in_array(strtoupper((string)$input['side']), ['BUY','SELL'], true)) $errors['side'] = 'Use BUY ou SELL.';
-        if (isset($input['quantity']) && filter_var($input['quantity'], FILTER_VALIDATE_INT) === false || isset($input['quantity']) && (int)$input['quantity'] < 1) $errors['quantity'] = 'Quantidade deve ser inteiro positivo.';
-        foreach (['unit_price','costs'] as $key) if (isset($input[$key]) && (!is_numeric($input[$key]) || (float)$input[$key] < 0)) $errors[$key] = 'Valor deve ser numérico e não negativo.';
+        if (isset($input['quantity']) && (
+            filter_var($input['quantity'], FILTER_VALIDATE_INT) === false
+            || (int)$input['quantity'] < 1
+            || (int)$input['quantity'] > 10000000
+        )) $errors['quantity'] = 'Quantidade deve ser um inteiro entre 1 e 10000000.';
+        foreach (['unit_price','costs'] as $key) {
+            if (isset($input[$key]) && (
+                !is_numeric($input[$key])
+                || !is_finite((float)$input[$key])
+                || (float)$input[$key] < 0
+                || (float)$input[$key] > 999999999999.999999
+            )) $errors[$key] = 'Valor deve ser numérico, finito e compatível com a precisão monetária.';
+        }
         if (isset($input['operation_kind']) && !in_array(strtoupper((string)$input['operation_kind']), ['TRADE','OPEN','CLOSE','PARTIAL_CLOSE','REVERSAL','ADJUSTMENT'], true)) $errors['operation_kind'] = 'Tipo de operação inválido.';
-        if (isset($input['executed_at']) && strtotime((string)$input['executed_at']) === false) $errors['executed_at'] = 'Data/hora inválida.';
+        if (isset($input['executed_at'])) {
+            $executedAt = str_replace('T', ' ', (string)$input['executed_at']);
+            if (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/', $executedAt)) $executedAt .= ':00';
+            $date = \DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $executedAt);
+            $dateErrors = \DateTimeImmutable::getLastErrors();
+            if ($date === false
+                || ($dateErrors !== false && ($dateErrors['warning_count'] > 0 || $dateErrors['error_count'] > 0))
+                || $date->format('Y-m-d H:i:s') !== $executedAt) {
+                $errors['executed_at'] = 'Data/hora inexistente ou inválida.';
+            }
+        }
         return $errors;
     }
 }

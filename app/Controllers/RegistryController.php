@@ -9,17 +9,18 @@ use App\Middleware\CsrfMiddleware;
 use App\Repositories\FinancialRegistrationRepository;
 use App\Repositories\OperationRepository;
 use App\Repositories\StrategyTemplateRepository;
+use App\Repositories\StructuredPositionRepository;
 use App\Services\FinancialRegistrationService;
 use App\Services\OperationService;
 use App\Services\StrategyLegService;
 use App\Services\StrategyTemplateService;
 use App\Services\StructuredPositionService;
-use App\Repositories\StructuredPositionRepository;
 use App\Support\Database;
 use App\Support\Request;
 use App\Support\Response;
 use App\Support\SessionManager;
 use PDO;
+use Throwable;
 
 final class RegistryController extends BaseController
 {
@@ -48,15 +49,23 @@ final class RegistryController extends BaseController
         $strategies = $this->financialService->list('strategies', $userId);
         $strategyLegService = new StrategyLegService($this->pdo);
         foreach ($strategies as &$strategy) {
-            $normalizedLegs = $strategyLegService->listForStrategy($userId, (int) $strategy['id']);
-            $legacyLegs = self::normalizeLegsForView($strategy['legs'] ?? []);
-            $strategy['legs'] = $normalizedLegs !== [] ? $normalizedLegs : $legacyLegs;
+            try {
+                $normalizedLegs = $strategyLegService->listForStrategy($userId, (int) $strategy['id']);
+                $legacyLegs = self::normalizeLegsForView($strategy['legs'] ?? []);
+                $strategy['legs'] = $normalizedLegs !== [] ? $normalizedLegs : $legacyLegs;
+            } catch (\Throwable) {
+                $strategy['legs'] = self::normalizeLegsForView($strategy['legs'] ?? []);
+            }
         }
         unset($strategy);
         $operations = $this->operationRepository->list($userId);
         $templateRepository = new StrategyTemplateRepository($this->pdo);
         $strategyTemplates = (new StrategyTemplateService($this->pdo, $templateRepository))->list($userId);
-        $structuredPositions = (new StructuredPositionService($this->pdo, $templateRepository, new StructuredPositionRepository($this->pdo)))->list($userId);
+        $structuredPositions = (new StructuredPositionService(
+            $this->pdo,
+            $templateRepository,
+            new StructuredPositionRepository($this->pdo)
+        ))->list($userId);
 
         $html = $this->view('registry/index', [
             'user' => $user,
@@ -69,11 +78,9 @@ final class RegistryController extends BaseController
             'csrf' => SessionManager::csrfToken(),
             'error' => $_SESSION['registry_error'] ?? null,
             'success' => $_SESSION['registry_success'] ?? null,
-            'oldInput' => $_SESSION['registry_old_input'] ?? [],
-            'formContext' => $_SESSION['registry_form_context'] ?? null,
         ]);
 
-        unset($_SESSION['registry_error'], $_SESSION['registry_success'], $_SESSION['registry_old_input'], $_SESSION['registry_form_context']);
+        unset($_SESSION['registry_error'], $_SESSION['registry_success']);
         Response::html($html, 200);
     }
 
@@ -124,32 +131,33 @@ final class RegistryController extends BaseController
         $this->requireAuth();
         $this->requireCsrf();
 
-        $result = $this->operationService->register($this->currentUserId(), Request::all());
+        try {
+            $result = $this->operationService->register($this->currentUserId(), Request::all());
+        } catch (Throwable $exception) {
+            error_log('Operation registration failed: ' . get_class($exception));
+            $result = ['success' => false, 'status' => 500, 'message' => 'Não foi possível registrar a execução. Nenhuma alteração foi confirmada.'];
+        }
         $this->redirectWithStatus($result, 'Posição registrada com sucesso.', '/registros');
-    }
-
-    public function storeStrategyTemplate(): void
-    {
-        $this->requireAuth();
-        $this->requireCsrf();
-        $payload = Request::all();
-        $templateId = filter_var($payload['template_id'] ?? null, FILTER_VALIDATE_INT);
-        $repository = new StrategyTemplateRepository($this->pdo);
-        $service = new StrategyTemplateService($this->pdo, $repository);
-        $result = $templateId !== false && $templateId !== null && $templateId > 0
-            ? $service->update($this->currentUserId(), $templateId, $payload)
-            : $service->create($this->currentUserId(), $payload);
-        $this->redirectWithStatus($result, 'Modelo de estratégia salvo com sucesso.', '/registros', 'template');
     }
 
     public function storeStructuredPosition(): void
     {
         $this->requireAuth();
         $this->requireCsrf();
-        $repository = new StrategyTemplateRepository($this->pdo);
-        $service = new StructuredPositionService($this->pdo, $repository, new StructuredPositionRepository($this->pdo));
-        $result = $service->register($this->currentUserId(), Request::all());
-        $this->redirectWithStatus($result, 'Posição estruturada registrada com sucesso.', '/registros', 'position');
+
+        $templateRepository = new StrategyTemplateRepository($this->pdo);
+        $service = new StructuredPositionService(
+            $this->pdo,
+            $templateRepository,
+            new StructuredPositionRepository($this->pdo)
+        );
+        try {
+            $result = $service->register($this->currentUserId(), Request::all());
+        } catch (Throwable $exception) {
+            error_log('Structured position registration failed: ' . get_class($exception));
+            $result = ['success' => false, 'status' => 500, 'message' => 'Não foi possível registrar a boleta. Nenhuma alteração foi confirmada.'];
+        }
+        $this->redirectWithStatus($result, 'Operação registrada com sucesso.', '/registros');
     }
 
     private function requireAuth(): void
@@ -171,11 +179,10 @@ final class RegistryController extends BaseController
         return (int) (SessionManager::user()['id'] ?? 0);
     }
 
-    private function redirectWithStatus(array $result, string $successMessage, string $location, ?string $formContext = null): void
+    private function redirectWithStatus(array $result, string $successMessage, string $location): void
     {
         if (($result['success'] ?? false) === true) {
             $_SESSION['registry_success'] = $successMessage;
-            unset($_SESSION['registry_old_input'], $_SESSION['registry_form_context']);
             header('Location: ' . $location);
             exit;
         }
@@ -187,8 +194,6 @@ final class RegistryController extends BaseController
         }
 
         $_SESSION['registry_error'] = $message;
-        $_SESSION['registry_old_input'] = Request::all();
-        if ($formContext !== null) $_SESSION['registry_form_context'] = $formContext;
         header('Location: ' . $location);
         exit;
     }

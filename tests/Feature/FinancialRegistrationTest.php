@@ -100,7 +100,7 @@ final class FinancialRegistrationTest extends TestCase
         $this->pdo->exec("INSERT INTO option_contracts (user_id, asset_id, code, option_type, strike_price, expiration_date) VALUES (1, 999, 'PETR2201C', 'CALL', 25.50, '2027-01-15')");
     }
 
-    public function testFinancialMasterDataIsIsolatedBetweenUsers(): void
+    public function testFinancialMasterDataIsScopedToItsOwner(): void
     {
         $this->pdo->exec("INSERT INTO users (username, password_hash) VALUES ('owner', 'hash')");
         $this->pdo->exec("INSERT INTO users (username, password_hash) VALUES ('other', 'hash-2')");
