@@ -1,84 +1,72 @@
 # RegistroOperacoesComOpcoes
 
-Sistema para registro das operações realizadas com opções na bolsa de valores, além de realizar simulações para preços alvos e apuração de lucros ou prejuízos.
+Sistema para registro, análise e simulação de operações com opções.
 
-## Visão geral
+## Status real do projeto
 
-Este projeto evolui por etapas, preservando a separação entre apresentação, controladores HTTP, serviços de aplicação, repositórios, banco de dados, motor financeiro TypeScript, testes e documentação.
+O projeto foi atualizado para um bootstrap Laravel 12 compatível com a base PHP já existente, sem apagar os serviços antigos nem a regra de negócio de persistência em PDO. A compatibilidade foi preservada por meio de:
 
-## Etapas registradas
+- bootstrap do Laravel em `bootstrap/app.php` e `public/index.php`;
+- roteamento legado em `routes/legacy_web.php` e `routes/legacy_api.php`;
+- migrações Laravel com wrappers por `App\Database\LegacyMigrations`;
+- tabela extra `strategy_legs` para normalizar pernas em formato estruturado;
+- motor financeiro com regra determinística de payoff e reconhecimento em `src/financial-engine`.
 
-- Etapa 0: planejamento e documentação.
-- Etapa 1: fundação técnica, configuração, migrações e inicialização local.
-- Etapa 5: operações e posições validadas pela suíte PHPUnit e migrações.
-- Etapa 6: rolagens validadas pela suíte PHPUnit e migrações. A transação de encerramento + abertura + histórico registrado foi verificada no checkout atual.
-- Etapa 7: núcleo financeiro TypeScript validado por testes automáticos (`blackScholes` e `findReverseStrike`); a integração com a dashboard ainda precisa ser concluída sem duplicar regra na view.
-- Etapa 8: dashboard autenticada implementada e consumindo dados reais da API; validação em navegador e responsividade seguem pendentes.
+Ainda não foi concluída a migração total da interface de cadastro para Laravel e também não é correto afirmar que o cadastro de estratégia multi-perna com edição completa, persistência final e reabertura UI estão finalizados.
 
-## Estrutura principal
+## Implementações confirmadas
 
-```text
-.
-├── app/
-├── config/
-├── database/
-├── docs/
-├── public/
-├── resources/
-├── routes/
-├── src/
-├── storage/
-├── tests/
-├── .env.example
-├── composer.json
-├── docker-compose.yml
-├── Dockerfile
-├── package.json
-├── phpunit.xml
-└── README.md
-```
+- Laravel 12 instalado e bootstrap validado por `php artisan route:list`.
+- Rota HTTP health respondendo com HTTP 200 em ambiente local.
+- Migrações Laravel executando com sucesso em SQLite temporário.
+- Estratégia canônica de pernas com `instrumentType`, `side`, `optionType`, `strike`, `expirationDate`, `quantity`, `premium`, `multiplier`, `costs`.
+- Payoff em vencimento para estratégias determinísticas com suporte explícito de `LONG_CALL`, `SHORT_CALL`, `LONG_PUT`, `SHORT_PUT`, spreads e straddles/strangles/iron condor parcialmente implementados.
+- Regras explícitas de reconhecimento e rejeição de combinações com vencimentos diferentes.
+- Testes de motor: 8 testes passados, 0 falhas.
 
-## Requisitos
+## Limitações atuais
+
+- Cadastro multi-perna pela interface web ainda não foi reescrito em toda a camada Laravel;
+- edição/reabertura com persistência em tabela estruturada ainda exige chaining com view/controller novos;
+- integração entre UI e backend Laravel para uma estratégia completa ainda é trabalho pendente;
+- não é correto afirmar que todas as estruturas complexas de payoff foram implementadas.
+
+## Requisitos do runtime
 
 - PHP 8.3+
 - Composer 2+
-- Docker + Docker Compose (opcional para PostgreSQL local)
-- PostgreSQL 16
+- SQLite para desenvolvimento/testes
+- PostgreSQL como destino de produção (com compatibilidade preservada)
 
-O ambiente local pode usar SQLite como fallback quando PDO PostgreSQL não estiver disponível. PostgreSQL continua sendo o banco principal.
-
-## Instalação e execução
+## Execução
 
 ```bash
 composer install
 cp .env.example .env
-composer test
-php scripts/run-migrations.php
-npm run dev
+php artisan key:generate --force
+php artisan migrate --force
+php artisan route:list --except-vendor
+npm test --prefix src/financial-engine
 ```
 
-## API de rolagens
+## Validação executada
 
-- `POST /api/rollovers`: registra encerramento e abertura numa única transação. Requer sessão autenticada e token CSRF.
-- `GET /api/rollovers`: lista o histórico de rolagens do usuário autenticado.
-- `GET /api/rollovers/{uuid}`: consulta uma rolagem pelo identificador único.
-
-O registro guarda as operações de origem e as duas pernas, estratégia, custos e fluxo líquido. Crédito/débito líquido representa fluxo de caixa e não é classificado automaticamente como lucro.
-
-## Verificação atual
-
-Comando executado no checkout atual:
+Comandos executados com sucesso:
 
 ```bash
-cd /workspaces/RegistroOperacoesComOpcoes && composer test && php scripts/run-migrations.php
+composer test
+npm test --prefix src/financial-engine
+DB_CONNECTION=sqlite DB_DATABASE=/tmp/registro-laravel-migration-fixed.sqlite php artisan migrate --force
+curl -sS -o /tmp/laravel-health-retry.json -w 'health_http=%{http_code}\n' http://127.0.0.1:8020/health
 ```
 
-Resultado confirmado:
+Resultados reais:
 
-- `OK (10 tests, 36 assertions)` no backend PHP
-- Migrações executadas com sucesso até `20261023_000004_create_rollovers.php`
-- `cd src/financial-engine && npm test` -> `pass 3`, `fail 0`
+- `composer test` -> `OK (18 tests, 73 assertions)`
+- `npm test --prefix src/financial-engine` -> `8 tests passed, 0 failed`
+- `php artisan migrate --force` em SQLite temporário -> todas as migrações executadas
+- `http://127.0.0.1:8020/health` -> HTTP 200, `status=ok`
 
-## Continuidade
+## Próximo passo realista
 
-Consulte `docs/ARCHITECTURE.md`, `docs/PROJECT_STATUS.md`, `docs/NEXT_STEPS.md` e `docs/DECISIONS.md` antes de mudanças estruturais. A Etapa 7 está validada no núcleo financeiro e a Etapa 8 está implementada em estrutura/fluxo, mas a integração final da dashboard com o motor e a validação visual em navegador continuam como próximos passos.
+Concluir a camada HTTP/Blade/Laravel das telas de cadastro e edição, migrando os controllers e repositórios de `App\Support\Router` para rotas nativas do framework e gravando as pernas em `strategy_legs` com reabertura/edição real.

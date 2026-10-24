@@ -1,48 +1,55 @@
 # Arquitetura
 
-## Objetivo
+## Estado arquitetural atual
 
-Organizar a aplicação em camadas para manter a separação de responsabilidades e permitir continuidade sem reescrever módulos existentes.
+O projeto vive em uma fase de compatibilidade: o núcleo antigo continua funcionando e o Laravel 12 foi adicionado como bootstrap modernizador. A arquitetura real é híbrida, não totalmente migrada.
 
-## Camadas
+### Camadas existentes
 
-1. Apresentação: HTML, CSS e JavaScript/TypeScript do frontend.
-2. Controladores HTTP: recepção de requisições, validação básica, resposta padronizada.
-3. Serviços de aplicação: regras de negócio e orquestração.
-4. Repositórios: acessos ao banco por abstração.
-5. Banco de dados: schema versionado e migrações.
-6. Motor financeiro TypeScript: cálculos independentes da interface.
-7. Integrações externas: cotações e APIs de terceiros.
-8. Testes: unitários, integração e feature.
+1. Frontend legado em PHP/HTML e views em `resources/views/`
+2. Controladores e serviços próprios em `app/`
+3. Repositórios e acesso via PDO
+4. Banco versionado por migrações em `database/migrations/`
+5. Compatibilidade Laravel em `bootstrap/`, `routes/` e `artisan`
+6. Motor financeiro em `src/financial-engine`
 
-## Fluxo de execução
+## Padrões e regras atuais
 
-- Interface -> Controlador -> Serviço -> Repositório -> Banco de dados
-- Interface -> Motor TypeScript -> Resultado validado
+- PHP 8.3+ e Composer PSR-4
+- Laravel 12 como bootstrap e camada de runtime moderno
+- compatibilidade por `legacy_*` e `App\Database\LegacyMigrations`
+- `strategy_legs` como tabela estrutural adicional para múltiplas pernas
+- payoff determinístico centralizado no motor TypeScript
 
-## Convenções
+## Riscos de compatibilidade
 
-- PHP 8.3+.
-- Composer PSR-4 com namespace `App\`.
-- Banco principal PostgreSQL, com compatibilidade SQLite para desenvolvimento/testes.
-- Regras financeiras permanecem fora dos controladores.
-- Ledger de operações é append-only; histórico financeiro não deve ser apagado ou reescrito.
-- A gravação das duas pernas de uma rolagem, alocação de encerramento, identidade da rolagem e histórico ocorre na mesma transação PDO.
-- UUID identifica a rolagem; operações de encerramento e abertura mantêm IDs próprios e referência entre si.
-- Fluxo de caixa líquido e custos são métricas separadas do resultado realizado.
+- autenticação e sessões ainda seguem o padrão legado em alguns handlers
+- rotas Laravel coexistem com controllers legados e a camada UI ainda não foi migrada em bloco
+- uso de `STRATEGY_JSON` legado e da tabela `strategy_legs` exige política de escrita consistente para evitar divergência entre campos
 
-## Padrões de erro
+## Modelo de domínio canônico
 
-- Falhas de validação retornam HTTP 422.
-- Requisições não autenticadas retornam HTTP 401.
-- Erros internos retornam HTTP 500 com payload padronizado.
+A estrutura atual de perna foi estabilizada em código com o tipo `CanonicalOptionLeg` e segue os campos:
 
-## Validação atual de funcionalidades visuais e numéricas
+- `instrumentType`
+- `side`
+- `optionType`
+- `strike`
+- `expirationDate`
+- `quantity`
+- `premium`
+- `multiplier`
+- `costs`
 
-- Etapa 7: o núcleo financeiro em `src/financial-engine` foi validado pelos testes automatizados do pacote TypeScript (`blackScholes` e `findReverseStrike`), com 3 testes aprovados e 0 falhas.
-- Etapa 8: a dashboard autenticada em `resources/views/dashboard/index.php` foi implementada com indicadores reais consumindo `/api/positions`, `/api/option-contracts` e `/api/assets`, mas a validação final em navegador, responsividade e UX ainda exige checagem manual/automática no ambiente de UI.
-- A regra arquitetural continua sendo manter o núcleo numérico em TypeScript e a view como camadas de apresentação/adaptação; a duplicação inline de cálculos na view deve ser removida quando a integração final for concluída.
+Este formato deve ser a base para qualquer migração final do cadastro estratégico.
 
-## Continuidade
+## Validação executada
 
-Consulte `docs/PROJECT_STATUS.md` e `docs/NEXT_STEPS.md` antes de alterações estruturais. O backend e o motor financeiro estão validados; a etapa final de integração visual da dashboard e a revisão de UX continuam como pendência de validação prática.
+- `php artisan route:list --except-vendor` passou
+- `curl http://127.0.0.1:8020/health` retornou HTTP 200
+- `composer test` passou
+- `npm test --prefix src/financial-engine` passou
+
+## Observação
+
+O projeto ainda não está em estado final de conversão completa para Laravel, mas a base híbrida now está operacional e o motor financeiro já está validado em cenário determinístico.

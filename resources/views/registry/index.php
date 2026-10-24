@@ -28,7 +28,11 @@
         input, select, textarea { width: 100%; padding: 10px 12px; box-sizing: border-box; border: 1px solid #cbd5e1; border-radius: 8px; }
         textarea { min-height: 100px; resize: vertical; }
         button { cursor: pointer; background: #2563eb; color: #fff; border: none; border-radius: 8px; padding: 10px 16px; }
+        .button-secondary { background: #e2e8f0; color: #0f172a; }
         .status { padding: 12px 14px; border-radius: 8px; margin-bottom: 18px; font-weight: 600; }
+        .leg-stack { display: grid; gap: 12px; }
+        .leg-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; }
+        .leg-row .mini-label { display: grid; gap: 6px; font-size: 12px; font-weight: 600; }
         .status.error { background: #fee2e2; color: #991b1b; }
         .status.success { background: #dcfce7; color: #166534; }
         table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13px; }
@@ -140,29 +144,155 @@
 
             <section class="card">
                 <h2>Cadastrar estratégia</h2>
-                <form method="POST" action="/registros/estrategias">
+                <form method="POST" action="/registros/estrategias" id="strategy-form">
                     <input type="hidden" name="_csrf_token" value="<?php echo htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8'); ?>">
+                    <input type="hidden" name="strategy_id" id="strategy-id" value="">
                     <label>
                         Nome
-                        <input type="text" name="name" placeholder="Estratégia de alta" required>
+                        <input type="text" name="name" id="strategy-name" placeholder="Estratégia de alta" required>
                     </label>
                     <label>
                         Descrição
-                        <textarea name="description" placeholder="Descrição da ideia da estratégia"></textarea>
+                        <textarea name="description" id="strategy-description" placeholder="Descrição da ideia da estratégia"></textarea>
                     </label>
-                    <label>
-                        Pernas (JSON)
-                        <textarea name="legs" placeholder='[{"side":"BUY","contract_code":"PETR4 2025-10"}]'></textarea>
-                    </label>
+                    <div>
+                        <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:8px;">
+                            <strong>Pernas</strong>
+                            <button type="button" class="button-secondary" id="add-leg">Adicionar perna</button>
+                        </div>
+                        <div id="strategy-legs" class="leg-stack"></div>
+                    </div>
                     <label>
                         Status
-                        <select name="status">
+                        <select name="status" id="strategy-status">
                             <option value="ACTIVE">Ativa</option>
                             <option value="INACTIVE">Inativa</option>
                         </select>
                     </label>
-                    <button type="submit">Salvar estratégia</button>
+                    <button type="submit" id="strategy-submit">Salvar estratégia</button>
                 </form>
+
+                <div style="margin-top: 20px;">
+                    <strong>Estratégias salvas</strong>
+                    <div style="display:grid; gap:8px; margin-top:10px;">
+                        <?php if (!$strategies): ?>
+                            <span class="muted">Nenhuma estratégia cadastrada.</span>
+                        <?php else: ?>
+                            <?php foreach ($strategies as $strategy): ?>
+                                <button
+                                    type="button"
+                                    class="button-secondary load-strategy"
+                                    data-id="<?php echo (int) ($strategy['id'] ?? 0); ?>"
+                                    data-name="<?php echo htmlspecialchars((string) ($strategy['name'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
+                                    data-description="<?php echo htmlspecialchars((string) ($strategy['description'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
+                                    data-status="<?php echo htmlspecialchars((string) ($strategy['status'] ?? 'ACTIVE'), ENT_QUOTES, 'UTF-8'); ?>"
+                                    data-legs='<?php echo json_encode((array) json_decode((string) ($strategy['legs'] ?? '[]'), true), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>'>
+                                    <?php echo htmlspecialchars((string) ($strategy['name'] ?? 'Estratégia'), ENT_QUOTES, 'UTF-8'); ?>
+                                </button>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </div>
+                </div>
+
+                <script>
+                    (() => {
+                        const form = document.getElementById('strategy-form');
+                        const container = document.getElementById('strategy-legs');
+                        const addButton = document.getElementById('add-leg');
+                        const strategyIdInput = document.getElementById('strategy-id');
+                        const submitButton = document.getElementById('strategy-submit');
+
+                        const createRow = (index, leg = {}) => {
+                            const row = document.createElement('div');
+                            row.className = 'leg-row';
+                            const side = (leg.side ?? 'BUY');
+                            const optionType = (leg.option_type ?? 'CALL');
+                            const strike = Number(leg.strike_price ?? 100);
+                            const expiration = leg.expiration_date ?? new Date().toISOString().slice(0, 10);
+                            const quantity = Number(leg.quantity ?? 1);
+                            const premium = Number(leg.premium ?? 0);
+                            const multiplier = Number(leg.contract_multiplier ?? 100);
+                            const costs = Number(leg.costs ?? 0);
+                            row.innerHTML = `
+                                <input type="hidden" name="legs[${index}][position]" value="${index + 1}">
+                                <label class="mini-label">
+                                    Lado
+                                    <select name="legs[${index}][side]">
+                                        <option value="BUY" ${side === 'BUY' ? 'selected' : ''}>Compra</option>
+                                        <option value="SELL" ${side === 'SELL' ? 'selected' : ''}>Venda</option>
+                                    </select>
+                                </label>
+                                <label class="mini-label">
+                                    Tipo
+                                    <select name="legs[${index}][option_type]">
+                                        <option value="CALL" ${optionType === 'CALL' ? 'selected' : ''}>CALL</option>
+                                        <option value="PUT" ${optionType === 'PUT' ? 'selected' : ''}>PUT</option>
+                                    </select>
+                                </label>
+                                <label class="mini-label">
+                                    Strike
+                                    <input type="number" step="0.01" min="0.01" name="legs[${index}][strike_price]" value="${strike}" required>
+                                </label>
+                                <label class="mini-label">
+                                    Vencimento
+                                    <input type="date" name="legs[${index}][expiration_date]" value="${expiration}" required>
+                                </label>
+                                <label class="mini-label">
+                                    Quantidade
+                                    <input type="number" min="1" step="1" name="legs[${index}][quantity]" value="${quantity}" required>
+                                </label>
+                                <label class="mini-label">
+                                    Prêmio
+                                    <input type="number" step="0.01" min="0" name="legs[${index}][premium]" value="${premium}" required>
+                                </label>
+                                <label class="mini-label">
+                                    Mult.
+                                    <input type="number" min="1" step="1" name="legs[${index}][contract_multiplier]" value="${multiplier}" required>
+                                </label>
+                                <label class="mini-label">
+                                    Custos
+                                    <input type="number" step="0.01" min="0" name="legs[${index}][costs]" value="${costs}">
+                                </label>
+                            `;
+                            return row;
+                        };
+
+                        const addLeg = (leg = {}) => {
+                            const index = container.children.length;
+                            container.appendChild(createRow(index, leg));
+                        };
+
+        const renderStrategy = (payload = []) => {
+            container.innerHTML = '';
+            if (!payload.length) {
+                addLeg();
+                return;
+            }
+            payload.forEach((leg) => addLeg(leg));
+        };
+
+        addButton.addEventListener('click', () => addLeg());
+        document.querySelectorAll('.load-strategy').forEach((button) => {
+            button.addEventListener('click', () => {
+                const legs = JSON.parse(button.dataset.legs || '[]');
+                document.getElementById('strategy-name').value = button.dataset.name || '';
+                document.getElementById('strategy-description').value = button.dataset.description || '';
+                document.getElementById('strategy-status').value = button.dataset.status || 'ACTIVE';
+                strategyIdInput.value = button.dataset.id || '';
+                submitButton.textContent = 'Atualizar estratégia';
+                renderStrategy(legs);
+            });
+        });
+
+        form.addEventListener('submit', () => {
+            if (!strategyIdInput.value) {
+                submitButton.textContent = 'Salvar estratégia';
+            }
+        });
+
+        renderStrategy([]);
+                    })();
+                </script>
             </section>
 
             <section class="card">

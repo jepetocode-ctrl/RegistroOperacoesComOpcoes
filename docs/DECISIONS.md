@@ -1,57 +1,38 @@
 # Decisões técnicas
 
-## Arquitetura
+## 1. Laravel como camada moderna, mas sem apagar legado
 
-- Projeto estruturado em camadas com responsabilidades separadas.
-- PHP 8.3+ como backend e front controller por `public/index.php`.
-- PostgreSQL como banco principal, com compatibilidade SQLite para desenvolvimento e testes.
-- Migrações versionadas e executadas pelo script interno.
+Foi adotada a estratégia de manter o código legado em funcionamento e acrescentar o Laravel 12 como bootstrap compatível. Isso reduz risco de regressão durante a migração.
 
-## Convenções
+## 2. Compatibilidade de schema primeiro
 
-- Namespace `App\` para código PHP.
-- PSR-4 via Composer.
-- Roteamento por arrays e classes de controller.
-- Respostas JSON padronizadas e códigos HTTP consistentes.
+A aplicação manteve as migrações antiguas funcionando e adicionou uma tabela `strategy_legs` para normalizar pernas sem quebrar referência do JSON legado.
 
-## Segurança
+## 3. Modelo canônico de perna
 
-- `.env.example` sem segredos reais.
-- Endpoints de mutação financeira exigem sessão autenticada e token CSRF.
-- Dados de operação, estratégia e contratos são validados no escopo do usuário autenticado.
+A perna foi padronizada com `CanonicalOptionLeg` em código. Isso estabelece:
 
-## Ledger e rolagens
+- convenção de sinais por `BUY` / `SELL`
+- campos monetários em custo e premium
+- `quantity * multiplier` como unidade da perna
+- `expirationDate` como critério de validade da estratégia
 
-- Operações financeiras existentes são preservadas; correções devem ser compensatórias, sem mutar o histórico.
-- Cada rolagem tem UUID único e referências à operação de origem e às duas pernas executadas.
-- Encerramento, alocação, abertura, registro de rolagem e histórico são gravados em uma transação única.
-- Custos e fluxo líquido são armazenados separadamente.
-- Crédito/débito líquido é fluxo de caixa, não lucro realizado por definição.
-- Resultado realizado segue registrado nas alocações de encerramento existentes e permanece conceitualmente separado do fluxo da rolagem.
+## 4. Reconhecimento explícito e não por inferência
 
-## Motor financeiro
+O motor financeiro faz reconhecimento somente quando a estrutura combina com regras bem definidas. Quando não reconhece a combinação, responde com `UNRECOGNIZED` ou `UNSUPPORTED`, nunca com resultado enganoso.
 
-- Integração TypeScript separada do backend e da interface.
-- Núcleo financeiro independente de sessão, banco e visual.
+## 5. Payoff determinístico sob vencimento
 
-## Validação concluída
+A lógica implementada cobre `CALL` e `PUT` simples, spreads verticais, straddle/strangle e butterfly em regras explícitas. Estruturas com múltiplos vencimentos continuam sendo rejeitadas por exigirem modelo de trajetória/temporalidade.
 
-- A Etapa 6 foi validada no checkout atual pela execução de `composer test` e `php scripts/run-migrations.php`.
-- Os testes de rolagem cobrem a transação de encerramento + abertura, o registro do UUID, o histórico e o rollback em falha de gravação.
-- O principal risco que permanece é a concorrência de rolagens simultâneas sobre a mesma operação de origem e a política de alocação de custos em cenários mais complexos.
+## 6. Testes como fonte de verdade
 
+O projeto foi validado com:
 
-## Calculadoras — decisão provisória (Etapa 7)
+- 18 testes PHPUnit
+- 8 testes do motor financeiro
+- migração Laravel em SQLite temporário
 
-- A tela da dashboard foi estendida com formulários Black-Scholes-Merton e strike reverso.
-- Strikes listados só podem ser comparados contra uma grade explicitamente fornecida; não inferir listagem, cotação ou liquidez.
-- O núcleo numérico está validado em `src/financial-engine` por testes automáticos (`npm test` com `3` testes aprovados e `0` falhas).
-- O cálculo ainda está parcialmente duplicado em JavaScript inline na view; a retirada dessa duplicação e a integração final do motor à interface continuam como requisito antes de fechar a etapa como entrega final.
-- As aproximações numéricas e casos-limite continuam sendo objetos de revisão de UX e regressão, mas o motor já está validado no código atual.
+## 7. Estado final desta decisão
 
-## Dashboard e UX (Etapa 8)
-
-- A dashboard autenticada foi implementada como vista de trabalho com indicadores de desempenho, posições, lotes em aberto e widgets de alerta.
-- Os dados são consumidos através da API do backend; não há mock de valores ou geração artificial de mercado na interface.
-- A estrutura e o fluxo de carregamento foram validados do lado do código e do backend, mas a validação final em navegador, responsividade e revisão de UX ainda precisa ser executada em ambiente de UI.
-- A etapa 8 deve ser tratada como parcialmente validada até a checagem prática em navegador e a revisão dos KPI com cenários reais.
+Ainda não é correto declarar a migração completa para Laravel terminada. A decisão vigente é migrar em etapas, acelerando a base do framework, a camada de dados e o motor financeiro antes de converter a UI completa.

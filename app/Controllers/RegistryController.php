@@ -84,14 +84,20 @@ final class RegistryController extends BaseController
         $this->requireCsrf();
 
         $payload = Request::all();
+        $strategyId = isset($payload['strategy_id']) && $payload['strategy_id'] !== '' ? (int) $payload['strategy_id'] : null;
+
         if (!isset($payload['legs']) || $payload['legs'] === '') {
             $payload['legs'] = [];
         } elseif (is_string($payload['legs'])) {
             $payload['legs'] = json_decode($payload['legs'], true) ?: [];
         }
 
-        $result = $this->financialService->save('strategies', $this->currentUserId(), $payload);
-        $this->redirectWithStatus($result, 'Estratégia cadastrada com sucesso.', '/registros');
+        $result = $strategyId !== null
+            ? $this->financialService->save('strategies', $this->currentUserId(), $payload, $strategyId)
+            : $this->financialService->save('strategies', $this->currentUserId(), $payload);
+
+        $message = $strategyId !== null ? 'Estratégia atualizada com sucesso.' : 'Estratégia cadastrada com sucesso.';
+        $this->redirectWithStatus($result, $message, '/registros');
     }
 
     public function storeOperation(): void

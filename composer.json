@@ -3,7 +3,8 @@
   "description": "Plataforma de análise, precificação e controle de opções.",
   "type": "project",
   "require": {
-    "php": ">=8.3"
+    "php": ">=8.3",
+    "laravel/framework": "^12.0"
   },
   "require-dev": {
     "phpunit/phpunit": "^11.0"
@@ -19,6 +20,13 @@
     }
   },
   "scripts": {
-    "test": "./vendor/bin/phpunit --colors=never"
+    "test": "./vendor/bin/phpunit --colors=never",
+    "migrate": "php artisan migrate --force",
+    "serve": "php artisan serve --host=0.0.0.0 --port=8000"
+  },
+  "config": {
+    "platform": {
+      "php": "8.3.0"
+    }
   }
 }

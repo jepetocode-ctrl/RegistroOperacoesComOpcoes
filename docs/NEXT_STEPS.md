@@ -1,57 +1,39 @@
 # Próximos passos
 
-## Etapa atual
+## Prioridade 1: concluir migração de runtime
 
-Etapa 6 — Rolagens validada no checkout atual. A base funcional de transação de encerramento + abertura + histórico foi validada pela suíte PHPUnit e pela migração de schema.
+1. Mover autenticação e sessão para Laravel nativo, sem dependência de `App\Support\SessionManager`.
+2. Migrar controladores revertidos para rotas do framework sem o adaptador legado.
+3. Consolidar o cadastro de estratégias e posições no backend Laravel.
 
-## Prioridade imediata
+## Prioridade 2: modelar e persistir pernas
 
-1. Confirmar comportamento de concorrência em rolagens simultâneas sobre a mesma operação de origem.
-2. Validar rolagens parciais sucessivas, múltiplas aberturas e isolamento por usuário em cenários mais complexos.
-3. Revisar alocação proporcional de custos e política de arredondamento em operações parciais.
-4. Definir controle de correção/compensação para rolagens já registradas, sem mutar o ledger histórico.
-5. Integrar endpoints de rolagem à interface HTML/CSS/JavaScript.
+1. Realizar `INSERT` em `strategy_legs` para cada perna da estratégia.
+2. Validar exclusão/integridade para estrutura não suportada.
+3. Reabrir e editar estratégia via endpoint Laravel completo.
 
-## Critérios de aceitação da Etapa 6
+## Prioridade 3: ampliar motor financeiro
 
-- Identificador UUID único por rolagem. ✅
-- Vínculo rastreável com operação de origem, perna de encerramento, perna de abertura e estratégia. ✅
-- Crédito/débito líquido e custos armazenados separadamente. ✅
-- Histórico preservado e consultável por usuário e identificador. ✅
-- Crédito líquido não é classificado automaticamente como lucro; resultado realizado continua separado. ✅
-- Quantidade remanescente da operação de origem respeitada e posição nova criada pela perna de abertura. ✅
-- Operações, alocação, registro da rolagem e histórico persistidos em uma transação; falha não deixa registros parciais. ✅
-- Contratos, estratégia e operação de origem sempre validados no escopo do usuário autenticado. ✅
-- Testes automatizados e migrações executados com sucesso no checkout atual. ✅
+1. Implementar regras de payoff para spreads, straddles e iron condor mais robustos.
+2. Definir payoffs não suportados sem resultados enganosos.
+3. Integrar pontos de equilíbrio e cenário contínuo em API final.
 
-## Observação
+## Prioridade 4: expor interface e validação real
 
-A Etapa 6 foi validada no ambiente atual com `composer test` e `php scripts/run-migrations.php`; as pendências restantes continuam sendo refinamentos de concorrência, UX e regras de custo mais complexas.
+1. Criar formulário de cadastro multi-perna via Laravel Blade ou Livewire.
+2. Validar reabertura da posição com dados persistidos.
+3. Validar UI, autenticação e edição em navegador.
 
+## Validação necessária antes de fechamento
 
-## Etapa 7 — Calculadoras (núcleo validado)
+- cadastro de estratégia com múltiplas pernas via UI
+- persistência correta de todas as pernas
+- reabertura e edição da posição
+- identificação explícita de estruturas não suportadas
+- soma do payoff consolidado com quantidades, multiplicadores e sinais corretos
+- custo/crédito inicial incorporado ao resultado líquido
+- passagens de testes automatizados relevantes
 
-Foi adicionada uma primeira interface em `resources/views/dashboard/index.php` com formulário Black-Scholes-Merton e strike reverso. A grade de strikes listados só é usada quando fornecida pelo usuário; strike teórico e listado são apresentados separadamente.
+## Risco principal
 
-### Status atual
-
-- Core validado: `cd src/financial-engine && npm test` -> `pass 3`, `fail 0`.
-- A arquitetura correta continua sendo manter o núcleo em `src/financial-engine` e a view como adaptador visual.
-- A duplicação de cálculo em JavaScript inline ainda precisa ser removida para consolidar a regra em um único módulo.
-
-### Pendências obrigatórias antes de concluir
-
-1. Integrar a view ao módulo TypeScript sem duplicar a lógica de cálculo.
-2. Validar em navegador os casos de entrada/erro, tolerância numérica e ausência de solução.
-3. Confirmar que as mensagens e a acessibilidade da calculadora atendem ao padrão do dashboard.
-
-
-## Etapa 8 — Interface e dashboard (estrutura validada; validação visual pendente)
-
-1. Confirmar em navegador desktop e celular o layout, navegação, filtros, acessibilidade, carregamento e mensagens de erro.
-2. Conferir indicadores com cenários controlados: carteira vazia, posição aberta com/sem cotação, encerramento parcial, múltiplos contratos e rolagem.
-3. Confirmar que realizado é somado uma vez por contrato e que fluxo de caixa não é rotulado como lucro; documentar a definição financeira dos KPIs.
-4. Revisar o gráfico para resultados positivos/negativos e garantir que o sentido dos valores esteja visualmente claro.
-5. Concluir a integração da calculadora ao motor TypeScript e finalizar a etapa 7 antes de declarar a interface como pronta.
-
-A implementação inicial usa dados reais dos endpoints existentes e não cria preços fictícios. O backend permanece validado, mas a etapa visual ainda exige teste de navegador e revisão de UX antes de fechamento formal.
+A arquitetura atual está híbrida e funcional em partes, mas a conversão final para Laravel com UI e persistência estruturada exige uma etapa de migração explícita, não só bootstrap e motor financeiro.

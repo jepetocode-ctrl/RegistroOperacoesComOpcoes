@@ -52,6 +52,60 @@ export interface ReverseStrikeResult {
   status: 'OK' | 'NO_SOLUTION' | 'MAX_ITERATIONS';
 }
 
+export type TradeSide = 'BUY' | 'SELL';
+
+export interface CanonicalOptionLeg {
+  instrumentType: 'OPTION';
+  contractId?: number;
+  side: TradeSide;
+  optionType: OptionType;
+  strike: number;
+  expirationDate: string;
+  quantity: number;
+  premium: number;
+  multiplier: number;
+  costs: number;
+}
+
+export interface StrategyPayoffInput {
+  legs: CanonicalOptionLeg[];
+  scenarioPrices?: number[];
+}
+
+export type RecognizedStrategy =
+  | 'LONG_CALL' | 'SHORT_CALL' | 'LONG_PUT' | 'SHORT_PUT'
+  | 'BULL_CALL_SPREAD' | 'BEAR_CALL_SPREAD' | 'BULL_PUT_SPREAD' | 'BEAR_PUT_SPREAD'
+  | 'LONG_STRADDLE' | 'SHORT_STRADDLE' | 'LONG_STRANGLE' | 'SHORT_STRANGLE'
+  | 'LONG_CALL_BUTTERFLY' | 'SHORT_CALL_BUTTERFLY'
+  | 'LONG_PUT_BUTTERFLY' | 'SHORT_PUT_BUTTERFLY'
+  | 'IRON_CONDOR';
+
+export interface StrategyRecognitionResult {
+  status: 'RECOGNIZED' | 'UNRECOGNIZED' | 'UNSUPPORTED';
+  strategy: RecognizedStrategy | null;
+  reason: string | null;
+}
+
+export interface StrategyScenario {
+  underlyingPrice: number;
+  optionPayoff: number;
+  netProfit: number;
+}
+
+export interface StrategyPayoffResult {
+  supported: boolean;
+  unsupportedReason: string | null;
+  expirationDate: string | null;
+  recognition: StrategyRecognitionResult;
+  initialCashFlow: number;
+  totalCosts: number;
+  netInitialCashFlow: number;
+  breakEvenPoints: number[];
+  maxProfit: number | null;
+  maxLoss: number | null;
+  scenarios: StrategyScenario[];
+}
+
 const EPSILON = 1e-12;
 
 export const engineStatus = 'Financial engine scaffold ready';
@@ -343,5 +397,200 @@ export function findReverseStrike(input: ReverseStrikeInput): ReverseStrikeResul
     iterations,
     nearestListedStrike: currentStrike,
     status: iterations >= maxIterations ? 'MAX_ITERATIONS' : 'NO_SOLUTION',
+  };
+}
+
+const PAYOFF_EPSILON = 1e-8;
+
+function sideSign(side: TradeSide): number {
+  return side === 'BUY' ? 1 : -1;
+}
+
+function legNotional(leg: CanonicalOptionLeg): number {
+  return leg.quantity * leg.multiplier;
+}
+
+function validatePayoffLegs(legs: CanonicalOptionLeg[]): void {
+  if (!Array.isArray(legs) || legs.length === 0) {
+    throw new Error('At least one option leg is required.');
+  }
+
+  legs.forEach((leg, index) => {
+    const prefix = `Leg ${index + 1}`;
+    if (leg.instrumentType !== 'OPTION') throw new Error(`${prefix}: only option legs are supported.`);
+    if (leg.side !== 'BUY' && leg.side !== 'SELL') throw new Error(`${prefix}: side must be BUY or SELL.`);
+    if (leg.optionType !== 'CALL' && leg.optionType !== 'PUT') throw new Error(`${prefix}: option type must be CALL or PUT.`);
+    if (!Number.isFinite(leg.strike) || leg.strike <= 0) throw new Error(`${prefix}: strike must be positive.`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(leg.expirationDate) || Number.isNaN(Date.parse(`${leg.expirationDate}T00:00:00Z`))) {
+      throw new Error(`${prefix}: expiration date must use YYYY-MM-DD.`);
+    }
+    if (!Number.isInteger(leg.quantity) || leg.quantity < 1) throw new Error(`${prefix}: quantity must be a positive integer.`);
+    if (!Number.isFinite(leg.premium) || leg.premium < 0) throw new Error(`${prefix}: premium must be non-negative.`);
+    if (!Number.isInteger(leg.multiplier) || leg.multiplier < 1) throw new Error(`${prefix}: multiplier must be a positive integer.`);
+    if (!Number.isFinite(leg.costs) || leg.costs < 0) throw new Error(`${prefix}: costs must be non-negative.`);
+  });
+}
+
+function recognizeStrategy(legs: CanonicalOptionLeg[]): StrategyRecognitionResult {
+  if (legs.length === 1) {
+    const leg = legs[0];
+    const strategy = `${leg.side === 'BUY' ? 'LONG' : 'SHORT'}_${leg.optionType}` as RecognizedStrategy;
+    return { status: 'RECOGNIZED', strategy, reason: null };
+  }
+
+  const equalNotional = legs.every((leg) => Math.abs(legNotional(leg) - legNotional(legs[0])) < PAYOFF_EPSILON);
+  if (legs.length === 2 && equalNotional) {
+    const call = legs.find((leg) => leg.optionType === 'CALL');
+    const put = legs.find((leg) => leg.optionType === 'PUT');
+    if (call && put && call.side === put.side) {
+      if (Math.abs(call.strike - put.strike) < PAYOFF_EPSILON) {
+        return { status: 'RECOGNIZED', strategy: call.side === 'BUY' ? 'LONG_STRADDLE' : 'SHORT_STRADDLE', reason: null };
+      }
+      if (put.strike < call.strike) {
+        return { status: 'RECOGNIZED', strategy: call.side === 'BUY' ? 'LONG_STRANGLE' : 'SHORT_STRANGLE', reason: null };
+      }
+    }
+
+    if (legs[0].optionType === legs[1].optionType && legs[0].side !== legs[1].side && Math.abs(legs[0].strike - legs[1].strike) >= PAYOFF_EPSILON) {
+      const [low, high] = [...legs].sort((a, b) => a.strike - b.strike);
+      if (low.optionType === 'CALL') {
+        return { status: 'RECOGNIZED', strategy: low.side === 'BUY' ? 'BULL_CALL_SPREAD' : 'BEAR_CALL_SPREAD', reason: null };
+      }
+      return { status: 'RECOGNIZED', strategy: low.side === 'BUY' ? 'BULL_PUT_SPREAD' : 'BEAR_PUT_SPREAD', reason: null };
+    }
+  }
+
+  if (legs.length === 3 && legs.every((leg) => leg.optionType === legs[0].optionType && leg.multiplier === legs[0].multiplier)) {
+    const sorted = [...legs].sort((a, b) => a.strike - b.strike);
+    const equalWings = Math.abs((sorted[1].strike - sorted[0].strike) - (sorted[2].strike - sorted[1].strike)) < PAYOFF_EPSILON;
+    const oneTwoOne = Math.abs(sorted[0].quantity - sorted[2].quantity) < PAYOFF_EPSILON
+      && Math.abs(sorted[1].quantity - 2 * sorted[0].quantity) < PAYOFF_EPSILON;
+    if (equalWings && oneTwoOne && sorted[0].side === sorted[2].side && sorted[1].side !== sorted[0].side) {
+      const direction = sorted[0].side === 'BUY' ? 'LONG' : 'SHORT';
+      return { status: 'RECOGNIZED', strategy: `${direction}_${legs[0].optionType}_BUTTERFLY` as RecognizedStrategy, reason: null };
+    }
+  }
+
+  if (legs.length === 4 && equalNotional) {
+    const putLegs = legs.filter((leg) => leg.optionType === 'PUT').sort((a, b) => a.strike - b.strike);
+    const callLegs = legs.filter((leg) => leg.optionType === 'CALL').sort((a, b) => a.strike - b.strike);
+    if (putLegs.length === 2 && callLegs.length === 2
+      && putLegs[0].strike < putLegs[1].strike
+      && putLegs[1].strike < callLegs[0].strike
+      && callLegs[0].strike < callLegs[1].strike
+      && putLegs[0].side === 'BUY' && putLegs[1].side === 'SELL'
+      && callLegs[0].side === 'SELL' && callLegs[1].side === 'BUY') {
+      return { status: 'RECOGNIZED', strategy: 'IRON_CONDOR', reason: null };
+    }
+  }
+
+  return {
+    status: 'UNRECOGNIZED',
+    strategy: null,
+    reason: 'Payoff suportado, mas a combinação não corresponde às regras explícitas de reconhecimento.',
+  };
+}
+
+function legPayoffAtExpiry(leg: CanonicalOptionLeg, underlyingPrice: number): number {
+  const intrinsic = leg.optionType === 'CALL'
+    ? Math.max(underlyingPrice - leg.strike, 0)
+    : Math.max(leg.strike - underlyingPrice, 0);
+  return sideSign(leg.side) * intrinsic * legNotional(leg);
+}
+
+function uniqueSorted(values: number[]): number[] {
+  return [...new Set(values.map((value) => Math.max(0, value)))].sort((a, b) => a - b);
+}
+
+function calculateBreakEvens(legs: CanonicalOptionLeg[], netInitialCashFlow: number): number[] {
+  const strikes = uniqueSorted([0, ...legs.map((leg) => leg.strike)]);
+  const profitAt = (price: number): number => netInitialCashFlow + legs.reduce((sum, leg) => sum + legPayoffAtExpiry(leg, price), 0);
+  const points: number[] = [];
+
+  for (let index = 0; index < strikes.length; index += 1) {
+    const low = strikes[index];
+    const lowProfit = profitAt(low);
+    if (Math.abs(lowProfit) < PAYOFF_EPSILON) points.push(low);
+    if (index === strikes.length - 1) continue;
+
+    const high = strikes[index + 1];
+    const highProfit = profitAt(high);
+    if (lowProfit * highProfit < 0) {
+      points.push(low + ((-lowProfit) * (high - low)) / (highProfit - lowProfit));
+    }
+  }
+
+  const lastStrike = strikes[strikes.length - 1];
+  const tailSlope = legs.reduce((sum, leg) => sum + (leg.optionType === 'CALL' ? sideSign(leg.side) * legNotional(leg) : 0), 0);
+  const lastProfit = profitAt(lastStrike);
+  if (Math.abs(tailSlope) >= PAYOFF_EPSILON) {
+    const tailRoot = lastStrike - lastProfit / tailSlope;
+    if (tailRoot > lastStrike + PAYOFF_EPSILON) points.push(tailRoot);
+  }
+
+  return uniqueSorted(points).filter((point, index, all) => index === 0 || Math.abs(point - all[index - 1]) >= PAYOFF_EPSILON);
+}
+
+function defaultScenarioPrices(legs: CanonicalOptionLeg[]): number[] {
+  const strikes = uniqueSorted(legs.map((leg) => leg.strike));
+  const prices = [0, ...strikes];
+  strikes.forEach((strike) => prices.push(Math.max(0, strike * 0.9), strike * 1.1));
+  prices.push(strikes[strikes.length - 1] * 1.5);
+  return uniqueSorted(prices);
+}
+
+export function analyzeStrategyPayoff(input: StrategyPayoffInput): StrategyPayoffResult {
+  validatePayoffLegs(input.legs);
+  const legs = input.legs;
+  const expirations = [...new Set(legs.map((leg) => leg.expirationDate))];
+  const initialCashFlow = legs.reduce((sum, leg) => sum - sideSign(leg.side) * leg.premium * legNotional(leg), 0);
+  const totalCosts = legs.reduce((sum, leg) => sum + leg.costs, 0);
+  const netInitialCashFlow = initialCashFlow - totalCosts;
+
+  if (expirations.length !== 1) {
+    const reason = 'Payoff com vencimentos diferentes depende da trajetória temporal e não é calculado por este modelo.';
+    return {
+      supported: false,
+      unsupportedReason: reason,
+      expirationDate: null,
+      recognition: { status: 'UNSUPPORTED', strategy: null, reason },
+      initialCashFlow,
+      totalCosts,
+      netInitialCashFlow,
+      breakEvenPoints: [],
+      maxProfit: null,
+      maxLoss: null,
+      scenarios: [],
+    };
+  }
+
+  const recognition = recognizeStrategy(legs);
+  const breakEvenPoints = calculateBreakEvens(legs, netInitialCashFlow);
+  const boundaryPrices = uniqueSorted([0, ...legs.map((leg) => leg.strike)]);
+  const boundaryProfits = boundaryPrices.map((price) => netInitialCashFlow + legs.reduce((sum, leg) => sum + legPayoffAtExpiry(leg, price), 0));
+  const tailSlope = legs.reduce((sum, leg) => sum + (leg.optionType === 'CALL' ? sideSign(leg.side) * legNotional(leg) : 0), 0);
+  const unboundedProfit = tailSlope > PAYOFF_EPSILON;
+  const unboundedLoss = tailSlope < -PAYOFF_EPSILON;
+  const requestedPrices = input.scenarioPrices ?? defaultScenarioPrices(legs);
+
+  requestedPrices.forEach((price) => {
+    if (!Number.isFinite(price) || price < 0) throw new Error('Scenario underlying prices must be finite and non-negative.');
+  });
+
+  return {
+    supported: true,
+    unsupportedReason: null,
+    expirationDate: expirations[0],
+    recognition,
+    initialCashFlow,
+    totalCosts,
+    netInitialCashFlow,
+    breakEvenPoints,
+    maxProfit: unboundedProfit ? null : Math.max(0, ...boundaryProfits),
+    maxLoss: unboundedLoss ? null : Math.max(0, -Math.min(...boundaryProfits)),
+    scenarios: uniqueSorted(requestedPrices).map((underlyingPrice) => {
+      const optionPayoff = legs.reduce((sum, leg) => sum + legPayoffAtExpiry(leg, underlyingPrice), 0);
+      return { underlyingPrice, optionPayoff, netProfit: netInitialCashFlow + optionPayoff };
+    }),
   };
 }

@@ -6,7 +6,7 @@ namespace Tests\Feature;
 
 use App\Repositories\OperationRepository;
 use App\Services\OperationService;
-use Database\Migrations\CreateOperationsAndPositions;
+use App\Database\LegacyMigrations\CreateOperationsAndPositions;
 use PDO;
 use PHPUnit\Framework\TestCase;
 
@@ -28,7 +28,6 @@ final class OperationServiceTest extends TestCase
         $this->pdo->exec("INSERT INTO users (username,password_hash) VALUES ('other','hash-2')");
         $this->pdo->exec("INSERT INTO assets (user_id,symbol,name) VALUES (1,'PETR4','Petrobras')");
         $this->pdo->exec("INSERT INTO option_contracts (user_id,asset_id,code,option_type,strike_price,expiration_date,contract_multiplier) VALUES (1,1,'PETR4C','CALL',10,'2027-01-15',100)");
-        require_once dirname(__DIR__, 2) . '/database/migrations/20261023_000003_create_operations_and_positions.php';
         (new CreateOperationsAndPositions())->up($this->pdo);
         $this->service = new OperationService($this->pdo, new OperationRepository($this->pdo));
     }

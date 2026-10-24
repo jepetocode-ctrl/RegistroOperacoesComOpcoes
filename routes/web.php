@@ -1,28 +1,8 @@
 <?php
 
-declare(strict_types=1);
+use App\Support\LegacyRouteBridge;
+use Illuminate\Support\Facades\Route;
 
-use App\Controllers\AuthController;
-use App\Controllers\DashboardController;
-use App\Controllers\HomeController;
-use App\Controllers\RegistryController;
-use App\Controllers\UserManagementController;
-
-return [
-    ['GET', '/', [HomeController::class, 'index']],
-    ['GET', '/health', [HomeController::class, 'health']],
-    ['GET', '/registros', [RegistryController::class, 'index']],
-    ['POST', '/registros/ativos', [RegistryController::class, 'storeAsset']],
-    ['POST', '/registros/contratos', [RegistryController::class, 'storeContract']],
-    ['POST', '/registros/estrategias', [RegistryController::class, 'storeStrategy']],
-    ['POST', '/registros/operacoes', [RegistryController::class, 'storeOperation']],
-    ['GET', '/login', [AuthController::class, 'loginPage']],
-    ['POST', '/login', [AuthController::class, 'login']],
-    ['POST', '/logout', [AuthController::class, 'logout']],
-    ['GET', '/change-password', [AuthController::class, 'changePasswordPage']],
-    ['POST', '/change-password', [AuthController::class, 'changePassword']],
-    ['GET', '/dashboard', [DashboardController::class, 'index']],
-    ['GET', '/admin/users', [UserManagementController::class, 'index']],
-    ['POST', '/admin/users', [UserManagementController::class, 'store']],
-    ['POST', '/admin/users/{id}/permissions', [UserManagementController::class, 'updatePermissions']],
-];
+foreach (require __DIR__ . '/legacy_web.php' as [$method, $uri, $handler]) {
+    Route::match([$method], $uri, fn () => app(LegacyRouteBridge::class)->dispatch($handler));
+}

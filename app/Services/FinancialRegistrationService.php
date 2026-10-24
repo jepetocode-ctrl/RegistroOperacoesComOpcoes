@@ -34,16 +34,55 @@ final class FinancialRegistrationService
             $stmt->execute(['id' => (int) $data['asset_id']]);
             if (!$stmt->fetchColumn()) return ['success' => false, 'status' => 422, 'errors' => ['asset_id' => 'O ativo não existe.']];
         }
+
         try {
+            $this->pdo->beginTransaction();
+
             $record = $id === null
                 ? $this->repository->create($resource, $userId, $data)
                 : $this->repository->update($resource, $userId, $id, $data);
+
+            if ($resource === 'strategies') {
+                $strategyId = (int) ($record['id'] ?? $id ?? 0);
+                $legs = $data['legs'] ?? [];
+                if ($this->tableExists('strategy_legs') && $strategyId > 0) {
+                    $strategyLegService = new StrategyLegService($this->pdo);
+                    $syncResult = $strategyLegService->sync($userId, $strategyId, is_array($legs) ? $legs : []);
+                    if (!$syncResult['success']) {
+                        $this->pdo->rollBack();
+                        return ['success' => false, 'status' => $syncResult['status'] ?? 422, 'message' => $syncResult['message'] ?? 'Legs inválidas.'];
+                    }
+                }
+            }
+
+            $this->pdo->commit();
             return ['success' => true, 'data' => $record, 'status' => $id === null ? 201 : 200];
         } catch (PDOException $exception) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
             if (in_array((string) $exception->getCode(), ['23000', '23505', '19'], true)) {
                 return ['success' => false, 'status' => 422, 'message' => 'Registro duplicado ou relação inválida.'];
             }
             throw $exception;
         }
+    }
+
+    private function tableExists(string $table): bool
+    {
+        $driver = strtolower((string) $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME));
+
+        if ($driver === 'sqlite') {
+            $stmt = $this->pdo->query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '{$table}' LIMIT 1");
+            return $stmt !== false && $stmt->fetchColumn() !== false;
+        }
+
+        if ($driver === 'pgsql') {
+            $stmt = $this->pdo->prepare('SELECT 1 FROM information_schema.tables WHERE table_name = :table_name LIMIT 1');
+            $stmt->execute(['table_name' => $table]);
+            return $stmt->fetchColumn() !== false;
+        }
+
+        return false;
     }
 }

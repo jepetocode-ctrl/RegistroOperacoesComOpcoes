@@ -4,6 +4,6 @@
   "scripts": {
     "dev": "bash scripts/start-dev-server.sh",
     "test": "composer test",
-    "migrate": "php scripts/run-migrations.php"
+    "migrate": "php artisan migrate --force"
   }
 }

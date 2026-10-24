@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Services\RolloverService;
-use Database\Migrations\CreateOperationsAndPositions;
-use Database\Migrations\CreateRollovers;
+use App\Database\LegacyMigrations\CreateOperationsAndPositions;
+use App\Database\LegacyMigrations\CreateRollovers;
 use PDO;
 use PHPUnit\Framework\TestCase;
 
@@ -29,8 +29,6 @@ final class RolloverServiceTest extends TestCase
         $this->pdo->exec("INSERT INTO assets (user_id,symbol,name) VALUES (1,'PETR4','Petrobras')");
         $this->pdo->exec("INSERT INTO option_contracts (user_id,asset_id,code,option_type,strike_price,expiration_date) VALUES (1,1,'PETR4C','CALL',10,'2027-01-15')");
         $this->pdo->exec("INSERT INTO option_contracts (user_id,asset_id,code,option_type,strike_price,expiration_date) VALUES (1,1,'PETR4C2','CALL',12,'2027-02-19')");
-        require_once dirname(__DIR__, 2) . '/database/migrations/20261023_000003_create_operations_and_positions.php';
-        require_once dirname(__DIR__, 2) . '/database/migrations/20261023_000004_create_rollovers.php';
         (new CreateOperationsAndPositions())->up($this->pdo);
         (new CreateRollovers())->up($this->pdo);
         $this->pdo->exec("INSERT INTO operations (user_id,option_contract_id,side,quantity,unit_price,gross_cash_flow,costs,executed_at,operation_kind) VALUES (1,1,'BUY',10,10,-10000,2,'2026-10-23 10:00:00','OPEN')");
