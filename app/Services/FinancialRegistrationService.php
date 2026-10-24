@@ -30,8 +30,8 @@ final class FinancialRegistrationService
         if ($id !== null && $this->repository->findOwned($resource, $userId, $id) === null) return ['success' => false, 'status' => 404, 'message' => 'Cadastro não encontrado.'];
 
         if ($resource === 'option_contracts' && isset($data['asset_id'])) {
-            $stmt = $this->pdo->prepare('SELECT id FROM assets WHERE id = :id');
-            $stmt->execute(['id' => (int) $data['asset_id']]);
+            $stmt = $this->pdo->prepare('SELECT id FROM assets WHERE id = :id AND user_id = :user_id');
+            $stmt->execute(['id' => (int) $data['asset_id'], 'user_id' => $userId]);
             if (!$stmt->fetchColumn()) return ['success' => false, 'status' => 422, 'errors' => ['asset_id' => 'O ativo não existe.']];
         }
 
