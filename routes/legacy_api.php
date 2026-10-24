@@ -34,6 +34,7 @@ return [
     ['GET', '/api/operations/{id}/history', [OperationController::class, 'handle']],
     ['GET', '/api/contracts/{id}/transactions', [OperationController::class, 'handle']],
     ['POST', '/api/quotes', [OperationController::class, 'handle']],
+    ['GET', '/api/strategy-positions', [OperationController::class, 'handle']],
     ['GET', '/api/positions', [OperationController::class, 'handle']],
     ['GET', '/api/positions/{id}', [OperationController::class, 'handle']],
     ['GET', '/api/rollovers', [RolloverController::class, 'handle']],
