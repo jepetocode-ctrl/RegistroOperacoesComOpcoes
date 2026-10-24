@@ -1,0 +1,1570 @@
+From 01be1a13d555eb2f1f6873703c44887edba65a2e Mon Sep 17 00:00:00 2001
+From: Claude <claude@example.com>
+Date: Sat, 24 Oct 2026 03:37:42 +0000
+Subject: [PATCH] =?UTF-8?q?feat:=20modelos=20de=20estrat=C3=A9gia=20e=20po?=
+ =?UTF-8?q?si=C3=A7=C3=B5es=20estruturadas=20(etapas=20A=E2=80=93D)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Introduz strategy_templates/slots, structured_positions/legs e operations.structured_position_id;
+catálogo de 17 modelos; registro atômico; migração do legado; corrige isolamento de strategy_id por usuário.
+---
+ README.md                                     |  16 +-
+ .../StructuredPositionController.php          |  70 +++++
+ app/Domain/LegacyStrategyConverter.php        |  55 ++++
+ app/Domain/StrategyCatalog.php                |  74 +++++
+ app/Domain/TemplateConstraints.php            |  91 ++++++
+ .../StrategyTemplateRepository.php            |  52 ++++
+ .../StructuredPositionRepository.php          |  65 ++++
+ app/Services/OperationService.php             |   8 +-
+ app/Services/RolloverService.php              |   4 +-
+ app/Services/StrategyTemplateService.php      |  73 +++++
+ app/Services/StructuredPositionService.php    | 191 ++++++++++++
+ ...024_000006_create_structured_positions.php | 169 ++++++++++
+ docs/API.md                                   |  12 +
+ docs/ARCHITECTURE.md                          |   9 +
+ docs/DATABASE.md                              |   9 +
+ docs/DECISIONS.md                             |  10 +
+ docs/MAPA_DO_SISTEMA.md                       |  12 +
+ docs/NEXT_STEPS.md                            |  10 +
+ docs/PROJECT_STATUS.md                        |  12 +
+ routes/api.php                                |   7 +
+ tests/Feature/LegacyStrategyMigrationTest.php |  97 ++++++
+ tests/Feature/StructuredPositionTest.php      | 293 ++++++++++++++++++
+ 22 files changed, 1332 insertions(+), 7 deletions(-)
+ create mode 100644 app/Controllers/StructuredPositionController.php
+ create mode 100644 app/Domain/LegacyStrategyConverter.php
+ create mode 100644 app/Domain/StrategyCatalog.php
+ create mode 100644 app/Domain/TemplateConstraints.php
+ create mode 100644 app/Repositories/StrategyTemplateRepository.php
+ create mode 100644 app/Repositories/StructuredPositionRepository.php
+ create mode 100644 app/Services/StrategyTemplateService.php
+ create mode 100644 app/Services/StructuredPositionService.php
+ create mode 100644 database/migrations/20261024_000006_create_structured_positions.php
+ create mode 100644 tests/Feature/LegacyStrategyMigrationTest.php
+ create mode 100644 tests/Feature/StructuredPositionTest.php
+
+diff --git a/README.md b/README.md
+index aa0b784..3dfd6b4 100644
+--- a/README.md
++++ b/README.md
+@@ -75,10 +75,24 @@ cd /workspaces/RegistroOperacoesComOpcoes && composer test && php scripts/run-mi
+ 
+ Resultado confirmado:
+ 
+-- `OK (10 tests, 36 assertions)` no backend PHP
++- `OK (10 tests, 36 assertions)` no backend PHP (registro histórico; a suíte já tinha 18 testes antes da Etapa C, ver abaixo)
+ - Migrações executadas com sucesso até `20261023_000004_create_rollovers.php`
+ - `cd src/financial-engine && npm test` -> `pass 3`, `fail 0`
+ 
+ ## Continuidade
+ 
+ Consulte `docs/ARCHITECTURE.md`, `docs/PROJECT_STATUS.md`, `docs/NEXT_STEPS.md` e `docs/DECISIONS.md` antes de mudanças estruturais. A Etapa 7 está validada no núcleo financeiro e a Etapa 8 está implementada em estrutura/fluxo, mas a integração final da dashboard com o motor e a validação visual em navegador continuam como próximos passos.
++
++## Reformulação: modelos de estratégia e posições estruturadas (Etapas A–D)
++
++- **Modelo de estratégia** = esqueleto (quantos slots/pernas, lado, tipo, proporção e restrições). Não contém contratos, preços, datas nem quantidades reais.
++- **Posição estruturada** = instância criada ao registrar a posição: o usuário informa o bloco comum uma vez e, por slot, só o contrato e o preço. Lado, tipo, strike, vencimento e multiplicador são derivados; quantidade = `ratio × quantidade-base`.
++- **Posição líquida por contrato** = o que `GET /api/positions` já calculava (inalterado).
++- Novos endpoints: `GET|POST /api/strategy-templates`, `GET /api/strategy-templates/{id}`, `GET|POST /api/structured-positions`, `GET /api/structured-positions/{uuid}`.
++- Nova migração: `20261024_000006_create_structured_positions.php` (catálogo com 17 modelos, conversão das estratégias legadas).
++- Corrigido o isolamento de `strategy_id` por usuário em `OperationService` e `RolloverService`.
++- **Ainda não implementado:** telas (Modelos, Registrar posição dinâmico, dashboard agrupada), encerramento/rolagem em nível de estrutura, reconhecimento automático e payoff (Etapas E–G). Os modelos do catálogo têm `support_level = REGISTRATION`: só o registro está validado.
++
++### Verificação desta etapa
++
++Executado com PHP 8.3.6 e PHPUnit 9.6.17 (instalados via `apt`, com autoloader PSR-4 temporário, pois o Packagist estava inacessível): `OK (36 tests, 178 assertions)` com `phpunit --stderr`. Sem `--stderr`, o PHPUnit 9 acusa um erro conhecido em `BootstrapTest` (saída enviada antes de `http_response_code`); é artefato do ambiente. Não foi executado com PHPUnit 11 via Composer. Motor TypeScript: `npm test` → `pass 3`, `fail 0`. Cadeia de migrações 1–6 executada em SQLite com dados legados. Não foi testado em PostgreSQL nem em navegador.
+diff --git a/app/Controllers/StructuredPositionController.php b/app/Controllers/StructuredPositionController.php
+new file mode 100644
+index 0000000..b21a946
+--- /dev/null
++++ b/app/Controllers/StructuredPositionController.php
+@@ -0,0 +1,70 @@
++<?php
++
++declare(strict_types=1);
++
++namespace App\Controllers;
++
++use App\Middleware\AuthMiddleware;
++use App\Middleware\CsrfMiddleware;
++use App\Repositories\OperationRepository;
++use App\Repositories\StrategyTemplateRepository;
++use App\Repositories\StructuredPositionRepository;
++use App\Services\StrategyTemplateService;
++use App\Services\StructuredPositionService;
++use App\Support\Database;
++use App\Support\Request;
++use App\Support\Response;
++use App\Support\SessionManager;
++
++/** /api/strategy-templates (modelos/esqueletos) e /api/structured-positions (instâncias). */
++final class StructuredPositionController
++{
++    private StrategyTemplateService $templates;
++    private StructuredPositionService $positions;
++
++    public function __construct()
++    {
++        $pdo = Database::defaultConnection();
++        $templateRepo = new StrategyTemplateRepository($pdo);
++        $this->templates = new StrategyTemplateService($pdo, $templateRepo);
++        $this->positions = new StructuredPositionService($pdo, $templateRepo, new StructuredPositionRepository($pdo), new OperationRepository($pdo));
++    }
++
++    public function handle(): void
++    {
++        if (!AuthMiddleware::isAuthenticated()) { Response::json(['success' => false, 'message' => 'Não autenticado.'], 401); return; }
++        $method = Request::method();
++        if (in_array($method, ['POST', 'PUT', 'PATCH', 'DELETE'], true) && !CsrfMiddleware::validate()) { Response::json(['success' => false, 'message' => 'Token CSRF inválido.'], 419); return; }
++        $userId = (int) SessionManager::user()['id'];
++        $parts = explode('/', trim(parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/', '/'));
++        $resource = $parts[1] ?? '';
++        $ref = $parts[2] ?? null;
++
++        if ($resource === 'strategy-templates') {
++            if ($method === 'GET' && $ref === null) { Response::json(['success' => true, 'data' => $this->templates->list($userId)]); return; }
++            if ($method === 'GET' && ctype_digit((string) $ref)) {
++                $t = $this->templates->find($userId, (int) $ref);
++                $t === null ? Response::json(['success' => false, 'message' => 'Modelo não encontrado.'], 404) : Response::json(['success' => true, 'data' => $t]);
++                return;
++            }
++            if ($method === 'POST' && $ref === null) { $this->respond($this->templates->create($userId, Request::all())); return; }
++        }
++        if ($resource === 'structured-positions') {
++            if ($method === 'GET' && $ref === null) { Response::json(['success' => true, 'data' => $this->positions->list($userId)]); return; }
++            if ($method === 'GET' && $ref !== null) {
++                $p = $this->positions->find($userId, (string) $ref);
++                $p === null ? Response::json(['success' => false, 'message' => 'Posição estruturada não encontrada.'], 404) : Response::json(['success' => true, 'data' => $p]);
++                return;
++            }
++            if ($method === 'POST' && $ref === null) { $this->respond($this->positions->register($userId, Request::all())); return; }
++        }
++        Response::json(['success' => false, 'message' => 'Rota não encontrada.'], 404);
++    }
++
++    private function respond(array $result): void
++    {
++        $status = (int) ($result['status'] ?? 200);
++        unset($result['status']);
++        Response::json($result, $status);
++    }
++}
+diff --git a/app/Domain/LegacyStrategyConverter.php b/app/Domain/LegacyStrategyConverter.php
+new file mode 100644
+index 0000000..3d2dda5
+--- /dev/null
++++ b/app/Domain/LegacyStrategyConverter.php
+@@ -0,0 +1,55 @@
++<?php
++
++declare(strict_types=1);
++
++namespace App\Domain;
++
++/** Converte o JSON legado de strategies.legs em slots, sem nunca descartar dados silenciosamente. */
++final class LegacyStrategyConverter
++{
++    /**
++     * @param callable(string):?string $resolveOptionType retorna CALL/PUT para um código de contrato do usuário
++     * @return array{slots:list<array<string,mixed>>,constraints:list<mixed>,needs_review:bool,reason:?string}
++     */
++    public static function convert(?string $rawLegs, callable $resolveOptionType): array
++    {
++        $fail = static fn(string $reason): array => ['slots' => [], 'constraints' => [], 'needs_review' => true, 'reason' => $reason];
++        if ($rawLegs === null || trim($rawLegs) === '') {
++            return $fail('Estratégia legada sem pernas informadas.');
++        }
++        $decoded = json_decode($rawLegs, true);
++        if (json_last_error() !== JSON_ERROR_NONE || !is_array($decoded) || $decoded === [] || !array_is_list($decoded)) {
++            return $fail('JSON de pernas inválido ou fora do formato de lista.');
++        }
++        $slots = [];
++        foreach ($decoded as $n => $leg) {
++            $i = $n + 1;
++            if (!is_array($leg)) {
++                return $fail("Perna {$i} não é um objeto.");
++            }
++            $side = strtoupper((string) ($leg['side'] ?? ''));
++            if (!in_array($side, ['BUY', 'SELL'], true)) {
++                return $fail("Perna {$i} sem lado BUY/SELL válido.");
++            }
++            $type = strtoupper((string) ($leg['option_type'] ?? ''));
++            if (!in_array($type, ['CALL', 'PUT'], true)) {
++                $code = (string) ($leg['contract_code'] ?? '');
++                $type = $code !== '' ? (string) $resolveOptionType($code) : '';
++            }
++            if (!in_array($type, ['CALL', 'PUT'], true)) {
++                return $fail("Perna {$i} sem tipo CALL/PUT identificável.");
++            }
++            $ratio = $leg['ratio'] ?? $leg['quantity'] ?? 1;
++            $ratio = filter_var($ratio, FILTER_VALIDATE_INT);
++            if ($ratio === false || $ratio < 1) {
++                return $fail("Perna {$i} com proporção inválida.");
++            }
++            $slots[] = [
++                'slot_key' => "leg_{$i}",
++                'label' => sprintf('Perna %d — %s de %s', $i, $side === 'BUY' ? 'Compra' : 'Venda', $type === 'CALL' ? 'Call' : 'Put'),
++                'side' => $side, 'option_type' => $type, 'ratio' => $ratio,
++            ];
++        }
++        return ['slots' => $slots, 'constraints' => [], 'needs_review' => false, 'reason' => null];
++    }
++}
+diff --git a/app/Domain/StrategyCatalog.php b/app/Domain/StrategyCatalog.php
+new file mode 100644
+index 0000000..b56baac
+--- /dev/null
++++ b/app/Domain/StrategyCatalog.php
+@@ -0,0 +1,74 @@
++<?php
++
++declare(strict_types=1);
++
++namespace App\Domain;
++
++/**
++ * Catálogo de modelos padrão (esqueletos). Define apenas a FORMA da estrutura.
++ * support_level = REGISTRATION: registro de posição validado; reconhecimento e payoff
++ * ainda NÃO implementados (Etapa G). Estruturas com ativo, barreiras, NDF e swap não constam.
++ */
++final class StrategyCatalog
++{
++    private static function slot(string $key, string $label, string $side, string $type, int $ratio = 1): array
++    {
++        return ['slot_key' => $key, 'label' => $label, 'side' => $side, 'option_type' => $type, 'ratio' => $ratio];
++    }
++
++    /** @return list<array<string,mixed>> */
++    public static function all(): array
++    {
++        $so = static fn(array $s): array => ['type' => 'strike_order', 'slots' => $s];
++        $se = static fn(array $s): array => ['type' => 'same_expiration', 'slots' => $s];
++        $ss = static fn(array $s): array => ['type' => 'same_strike', 'slots' => $s];
++        $def = static fn(string $code, string $name, string $desc, array $slots, array $constraints = []): array
++            => ['code' => $code, 'name' => $name, 'description' => $desc, 'category' => 'OPTIONS', 'slots' => $slots, 'constraints' => $constraints];
++
++        return [
++            $def('long_call', 'Compra de Call', 'Compra de uma Call.', [self::slot('long_call', 'Compra de Call', 'BUY', 'CALL')]),
++            $def('short_call', 'Venda de Call', 'Venda de uma Call.', [self::slot('short_call', 'Venda de Call', 'SELL', 'CALL')]),
++            $def('long_put', 'Compra de Put', 'Compra de uma Put.', [self::slot('long_put', 'Compra de Put', 'BUY', 'PUT')]),
++            $def('short_put', 'Venda de Put', 'Venda de uma Put.', [self::slot('short_put', 'Venda de Put', 'SELL', 'PUT')]),
++            $def('call_spread_buy', 'Compra de Call Spread', 'Compra Call strike inferior e venda Call strike superior, mesmo vencimento.',
++                [self::slot('long_call', 'Compra de Call — strike inferior', 'BUY', 'CALL'), self::slot('short_call', 'Venda de Call — strike superior', 'SELL', 'CALL')],
++                [$so(['long_call', 'short_call']), $se(['long_call', 'short_call'])]),
++            $def('call_spread_sell', 'Venda de Call Spread', 'Venda Call strike inferior e compra Call strike superior, mesmo vencimento.',
++                [self::slot('short_call', 'Venda de Call — strike inferior', 'SELL', 'CALL'), self::slot('long_call', 'Compra de Call — strike superior', 'BUY', 'CALL')],
++                [$so(['short_call', 'long_call']), $se(['short_call', 'long_call'])]),
++            $def('put_spread_buy', 'Compra de Put Spread', 'Compra Put strike superior e venda Put strike inferior, mesmo vencimento.',
++                [self::slot('short_put', 'Venda de Put — strike inferior', 'SELL', 'PUT'), self::slot('long_put', 'Compra de Put — strike superior', 'BUY', 'PUT')],
++                [$so(['short_put', 'long_put']), $se(['short_put', 'long_put'])]),
++            $def('put_spread_sell', 'Venda de Put Spread', 'Venda Put strike superior e compra Put strike inferior, mesmo vencimento.',
++                [self::slot('long_put', 'Compra de Put — strike inferior', 'BUY', 'PUT'), self::slot('short_put', 'Venda de Put — strike superior', 'SELL', 'PUT')],
++                [$so(['long_put', 'short_put']), $se(['long_put', 'short_put'])]),
++            $def('long_straddle', 'Compra de Straddle', 'Compra de Call e Put no mesmo strike e vencimento.',
++                [self::slot('long_call', 'Compra de Call', 'BUY', 'CALL'), self::slot('long_put', 'Compra de Put', 'BUY', 'PUT')],
++                [$ss(['long_call', 'long_put']), $se(['long_call', 'long_put'])]),
++            $def('short_straddle', 'Venda de Straddle', 'Venda de Call e Put no mesmo strike e vencimento.',
++                [self::slot('short_call', 'Venda de Call', 'SELL', 'CALL'), self::slot('short_put', 'Venda de Put', 'SELL', 'PUT')],
++                [$ss(['short_call', 'short_put']), $se(['short_call', 'short_put'])]),
++            $def('long_strangle', 'Compra de Strangle', 'Compra de Put (strike inferior) e Call (strike superior), mesmo vencimento.',
++                [self::slot('long_put', 'Compra de Put — strike inferior', 'BUY', 'PUT'), self::slot('long_call', 'Compra de Call — strike superior', 'BUY', 'CALL')],
++                [$so(['long_put', 'long_call']), $se(['long_put', 'long_call'])]),
++            $def('short_strangle', 'Venda de Strangle', 'Venda de Put (strike inferior) e Call (strike superior), mesmo vencimento.',
++                [self::slot('short_put', 'Venda de Put — strike inferior', 'SELL', 'PUT'), self::slot('short_call', 'Venda de Call — strike superior', 'SELL', 'CALL')],
++                [$so(['short_put', 'short_call']), $se(['short_put', 'short_call'])]),
++            $def('long_call_fly', 'Fly de Call (comprada)', 'Compra 1 Call K1, venda 2 Calls K2, compra 1 Call K3 (K1<K2<K3), mesmo vencimento.',
++                [self::slot('wing_low', 'Compra de Call — strike inferior', 'BUY', 'CALL'), self::slot('body', 'Venda de 2 Calls — strike central', 'SELL', 'CALL', 2), self::slot('wing_high', 'Compra de Call — strike superior', 'BUY', 'CALL')],
++                [$so(['wing_low', 'body', 'wing_high']), $se(['wing_low', 'body', 'wing_high'])]),
++            $def('long_put_fly', 'Fly de Put (comprada)', 'Compra 1 Put K1, venda 2 Puts K2, compra 1 Put K3 (K1<K2<K3), mesmo vencimento.',
++                [self::slot('wing_low', 'Compra de Put — strike inferior', 'BUY', 'PUT'), self::slot('body', 'Venda de 2 Puts — strike central', 'SELL', 'PUT', 2), self::slot('wing_high', 'Compra de Put — strike superior', 'BUY', 'PUT')],
++                [$so(['wing_low', 'body', 'wing_high']), $se(['wing_low', 'body', 'wing_high'])]),
++            $def('long_call_condor', 'Condor de Call (comprado)', 'Compra Call K1, venda Call K2, venda Call K3, compra Call K4 (K1<K2<K3<K4), mesmo vencimento.',
++                [self::slot('wing_low', 'Compra de Call — strike 1', 'BUY', 'CALL'), self::slot('body_low', 'Venda de Call — strike 2', 'SELL', 'CALL'), self::slot('body_high', 'Venda de Call — strike 3', 'SELL', 'CALL'), self::slot('wing_high', 'Compra de Call — strike 4', 'BUY', 'CALL')],
++                [$so(['wing_low', 'body_low', 'body_high', 'wing_high']), $se(['wing_low', 'body_low', 'body_high', 'wing_high'])]),
++            $def('risk_reversal_alta', 'Risk Reversal (alta)', 'Variante de alta: venda de Put (strike inferior) e compra de Call (strike superior), mesmo vencimento. Outras variantes não estão modeladas.',
++                [self::slot('short_put', 'Venda de Put — strike inferior', 'SELL', 'PUT'), self::slot('long_call', 'Compra de Call — strike superior', 'BUY', 'CALL')],
++                [$so(['short_put', 'long_call']), $se(['short_put', 'long_call'])]),
++            $def('seagull_alta', 'Seagull (alta)', 'Variante de alta: venda de Put K1, compra de Call K2, venda de Call K3 (K1<K2<K3), mesmo vencimento.',
++                [self::slot('short_put', 'Venda de Put — strike 1', 'SELL', 'PUT'), self::slot('long_call', 'Compra de Call — strike 2', 'BUY', 'CALL'), self::slot('short_call', 'Venda de Call — strike 3', 'SELL', 'CALL')],
++                [$so(['short_put', 'long_call', 'short_call']), $se(['short_put', 'long_call', 'short_call'])]),
++        ];
++    }
++}
+diff --git a/app/Domain/TemplateConstraints.php b/app/Domain/TemplateConstraints.php
+new file mode 100644
+index 0000000..534ff05
+--- /dev/null
++++ b/app/Domain/TemplateConstraints.php
+@@ -0,0 +1,91 @@
++<?php
++
++declare(strict_types=1);
++
++namespace App\Domain;
++
++/**
++ * Restrições declarativas entre slots de um modelo de estratégia.
++ * Nunca executa conteúdo recebido: apenas interpreta tipos conhecidos.
++ *
++ * Tipos suportados:
++ *  - strike_order: {"type":"strike_order","slots":["a","b","c"]}  => strike(a) < strike(b) < strike(c)
++ *  - same_strike:  {"type":"same_strike","slots":["a","b"]}
++ *  - same_expiration: {"type":"same_expiration","slots":["a","b"]}
++ */
++final class TemplateConstraints
++{
++    public const TYPES = ['strike_order', 'same_strike', 'same_expiration'];
++
++    /** @return array<string,string> erros indexados por campo */
++    public static function validateDefinition(mixed $constraints, array $slotKeys): array
++    {
++        if (!is_array($constraints) || ($constraints !== [] && !array_is_list($constraints))) {
++            return ['constraints' => 'Restrições devem ser uma lista.'];
++        }
++        $errors = [];
++        foreach ($constraints as $i => $c) {
++            $field = "constraints.{$i}";
++            if (!is_array($c) || !in_array($c['type'] ?? null, self::TYPES, true)) {
++                $errors[$field] = 'Tipo de restrição desconhecido.';
++                continue;
++            }
++            $slots = $c['slots'] ?? null;
++            if (!is_array($slots) || !array_is_list($slots) || count($slots) < 2 || count($slots) !== count(array_unique($slots))) {
++                $errors[$field] = 'Informe ao menos 2 slots distintos.';
++                continue;
++            }
++            foreach ($slots as $key) {
++                if (!is_string($key) || !in_array($key, $slotKeys, true)) {
++                    $errors[$field] = 'A restrição referencia um slot inexistente.';
++                    break;
++                }
++            }
++        }
++        return $errors;
++    }
++
++    /**
++     * @param array<string,array{strike_price:mixed,expiration_date:mixed}> $contractsBySlot
++     * @return array<string,string>
++     */
++    public static function evaluate(array $constraints, array $contractsBySlot): array
++    {
++        $errors = [];
++        foreach ($constraints as $i => $c) {
++            $slots = $c['slots'];
++            $field = "constraints.{$i}";
++            switch ($c['type']) {
++                case 'strike_order':
++                    for ($k = 0; $k < count($slots) - 1; $k++) {
++                        $a = (float) $contractsBySlot[$slots[$k]]['strike_price'];
++                        $b = (float) $contractsBySlot[$slots[$k + 1]]['strike_price'];
++                        if (!($a < $b - 1e-9)) {
++                            $errors[$field] = "O strike de {$slots[$k]} deve ser menor que o de {$slots[$k + 1]}.";
++                            break;
++                        }
++                    }
++                    break;
++                case 'same_strike':
++                    $first = (float) $contractsBySlot[$slots[0]]['strike_price'];
++                    foreach ($slots as $s) {
++                        if (abs((float) $contractsBySlot[$s]['strike_price'] - $first) > 1e-9) {
++                            $errors[$field] = 'Os slots ' . implode(', ', $slots) . ' devem ter o mesmo strike.';
++                            break;
++                        }
++                    }
++                    break;
++                case 'same_expiration':
++                    $first = (string) $contractsBySlot[$slots[0]]['expiration_date'];
++                    foreach ($slots as $s) {
++                        if ((string) $contractsBySlot[$s]['expiration_date'] !== $first) {
++                            $errors[$field] = 'Os slots ' . implode(', ', $slots) . ' devem ter o mesmo vencimento.';
++                            break;
++                        }
++                    }
++                    break;
++            }
++        }
++        return $errors;
++    }
++}
+diff --git a/app/Repositories/StrategyTemplateRepository.php b/app/Repositories/StrategyTemplateRepository.php
+new file mode 100644
+index 0000000..b8bd12f
+--- /dev/null
++++ b/app/Repositories/StrategyTemplateRepository.php
+@@ -0,0 +1,52 @@
++<?php
++
++declare(strict_types=1);
++
++namespace App\Repositories;
++
++use PDO;
++
++final class StrategyTemplateRepository
++{
++    public function __construct(private readonly PDO $pdo) {}
++
++    /** Modelos visíveis ao usuário: catálogo do sistema (user_id NULL) + os do próprio usuário. */
++    public function listVisible(int $userId): array
++    {
++        $stmt = $this->pdo->prepare("SELECT * FROM strategy_templates WHERE status = 'ACTIVE' AND (user_id IS NULL OR user_id = :u) ORDER BY (user_id IS NOT NULL), name, id");
++        $stmt->execute(['u' => $userId]);
++        return array_map(fn(array $t): array => $this->hydrate($t), $stmt->fetchAll(PDO::FETCH_ASSOC));
++    }
++
++    public function findVisible(int $userId, int $id): ?array
++    {
++        $stmt = $this->pdo->prepare("SELECT * FROM strategy_templates WHERE id = :id AND status = 'ACTIVE' AND (user_id IS NULL OR user_id = :u)");
++        $stmt->execute(['id' => $id, 'u' => $userId]);
++        $row = $stmt->fetch(PDO::FETCH_ASSOC);
++        return $row === false ? null : $this->hydrate($row);
++    }
++
++    public function insert(int $userId, array $data): int
++    {
++        $stmt = $this->pdo->prepare("INSERT INTO strategy_templates (user_id, name, description, origin, constraints) VALUES (:u,:name,:description,'USER',:constraints)");
++        $stmt->execute(['u' => $userId, 'name' => $data['name'], 'description' => $data['description'], 'constraints' => json_encode($data['constraints'], JSON_THROW_ON_ERROR)]);
++        $id = (int) $this->pdo->lastInsertId();
++        $slot = $this->pdo->prepare('INSERT INTO strategy_template_slots (template_id, position, slot_key, label, side, option_type, ratio) VALUES (:t,:p,:k,:l,:s,:o,:r)');
++        foreach ($data['slots'] as $pos => $s) {
++            $slot->execute(['t' => $id, 'p' => $pos + 1, 'k' => $s['slot_key'], 'l' => $s['label'], 's' => $s['side'], 'o' => $s['option_type'], 'r' => $s['ratio']]);
++        }
++        return $id;
++    }
++
++    private function hydrate(array $t): array
++    {
++        $slots = $this->pdo->prepare('SELECT slot_key, label, instrument_type, side, option_type, ratio, position FROM strategy_template_slots WHERE template_id = :id ORDER BY position');
++        $slots->execute(['id' => $t['id']]);
++        $t['id'] = (int) $t['id'];
++        $t['user_id'] = $t['user_id'] === null ? null : (int) $t['user_id'];
++        $t['needs_review'] = (int) $t['needs_review'] === 1;
++        $t['constraints'] = $t['constraints'] === null ? [] : (json_decode((string) $t['constraints'], true) ?: []);
++        $t['slots'] = array_map(static function (array $s): array { $s['ratio'] = (int) $s['ratio']; $s['position'] = (int) $s['position']; return $s; }, $slots->fetchAll(PDO::FETCH_ASSOC));
++        return $t;
++    }
++}
+diff --git a/app/Repositories/StructuredPositionRepository.php b/app/Repositories/StructuredPositionRepository.php
+new file mode 100644
+index 0000000..97baafc
+--- /dev/null
++++ b/app/Repositories/StructuredPositionRepository.php
+@@ -0,0 +1,65 @@
++<?php
++
++declare(strict_types=1);
++
++namespace App\Repositories;
++
++use PDO;
++
++final class StructuredPositionRepository
++{
++    public function __construct(private readonly PDO $pdo) {}
++
++    public function insertPosition(array $d): int
++    {
++        $stmt = $this->pdo->prepare('INSERT INTO structured_positions (uuid, user_id, strategy_template_id, asset_id, name, base_quantity, executed_at, declared_strategy, notes) VALUES (:uuid,:user_id,:template_id,:asset_id,:name,:base_quantity,:executed_at,:declared,:notes)');
++        $stmt->execute($d);
++        return (int) $this->pdo->lastInsertId();
++    }
++
++    /** Insere a operação do ledger já vinculada à posição estruturada (append-only: sem UPDATE posterior). */
++    public function insertLegOperation(array $d): int
++    {
++        $stmt = $this->pdo->prepare("INSERT INTO operations (user_id, option_contract_id, strategy_id, structured_position_id, side, quantity, unit_price, gross_cash_flow, costs, executed_at, operation_kind, notes) VALUES (:user_id,:contract_id,:strategy_id,:structured_id,:side,:quantity,:unit_price,:gross,:costs,:executed_at,'OPEN',:notes)");
++        $stmt->execute($d);
++        return (int) $this->pdo->lastInsertId();
++    }
++
++    public function insertLeg(int $positionId, string $slotKey, int $operationId, int $contractId): void
++    {
++        $stmt = $this->pdo->prepare('INSERT INTO structured_position_legs (structured_position_id, slot_key, operation_id, option_contract_id) VALUES (:p,:k,:o,:c)');
++        $stmt->execute(['p' => $positionId, 'k' => $slotKey, 'o' => $operationId, 'c' => $contractId]);
++    }
++
++    public function list(int $userId): array
++    {
++        $stmt = $this->pdo->prepare('SELECT * FROM structured_positions WHERE user_id = :u ORDER BY executed_at DESC, id DESC');
++        $stmt->execute(['u' => $userId]);
++        return array_map(fn(array $p): array => $this->hydrate($userId, $p), $stmt->fetchAll(PDO::FETCH_ASSOC));
++    }
++
++    public function findByUuid(int $userId, string $uuid): ?array
++    {
++        $stmt = $this->pdo->prepare('SELECT * FROM structured_positions WHERE user_id = :u AND uuid = :uuid');
++        $stmt->execute(['u' => $userId, 'uuid' => $uuid]);
++        $row = $stmt->fetch(PDO::FETCH_ASSOC);
++        return $row === false ? null : $this->hydrate($userId, $row);
++    }
++
++    private function hydrate(int $userId, array $p): array
++    {
++        $legs = $this->pdo->prepare("SELECT l.slot_key, l.operation_id, o.option_contract_id, o.side, o.quantity, o.unit_price, o.costs, o.gross_cash_flow, c.code AS contract_code, c.option_type, c.strike_price, c.expiration_date, c.contract_multiplier, s.label, s.position,
++            COALESCE((SELECT SUM(cl.quantity) FROM operation_closures cl WHERE cl.user_id = o.user_id AND cl.opening_operation_id = o.id), 0) AS closed_quantity
++            FROM structured_position_legs l
++            JOIN operations o ON o.id = l.operation_id AND o.user_id = :u
++            JOIN option_contracts c ON c.id = o.option_contract_id
++            JOIN structured_positions sp ON sp.id = l.structured_position_id
++            LEFT JOIN strategy_template_slots s ON s.template_id = sp.strategy_template_id AND s.slot_key = l.slot_key
++            WHERE l.structured_position_id = :p ORDER BY s.position, l.id");
++        $legs->execute(['u' => $userId, 'p' => $p['id']]);
++        $p['id'] = (int) $p['id'];
++        $p['base_quantity'] = (int) $p['base_quantity'];
++        $p['legs'] = $legs->fetchAll(PDO::FETCH_ASSOC);
++        return $p;
++    }
++}
+diff --git a/app/Services/OperationService.php b/app/Services/OperationService.php
+index e0c689f..787b28c 100644
+--- a/app/Services/OperationService.php
++++ b/app/Services/OperationService.php
+@@ -95,8 +95,8 @@ final class OperationService
+             }
+             $strategyId = isset($input['strategy_id']) ? (int)$input['strategy_id'] : null;
+             if ($strategyId !== null) {
+-                $s = $this->pdo->prepare('SELECT id FROM strategies WHERE id = :id');
+-                $s->execute(['id' => $strategyId]);
++                $s = $this->pdo->prepare('SELECT id FROM strategies WHERE id = :id AND user_id = :user_id');
++                $s->execute(['id' => $strategyId, 'user_id' => $userId]);
+                 if (!$s->fetchColumn()) { $this->pdo->rollBack(); return ['success' => false, 'status' => 422, 'errors' => ['strategy_id' => 'Estratégia inexistente.']]; }
+             }
+             $data = [
+@@ -168,8 +168,8 @@ final class OperationService
+                     $this->pdo->rollBack();
+                     return ['success' => false, 'status' => 422, 'errors' => ['strategy_id' => 'Estratégia inválida.']];
+                 }
+-                $strategy = $this->pdo->prepare('SELECT id FROM strategies WHERE id = :id');
+-                $strategy->execute(['id' => $strategyId]);
++                $strategy = $this->pdo->prepare('SELECT id FROM strategies WHERE id = :id AND user_id = :user_id');
++                $strategy->execute(['id' => $strategyId, 'user_id' => $userId]);
+                 if (!$strategy->fetchColumn()) {
+                     $this->pdo->rollBack();
+                     return ['success' => false, 'status' => 422, 'errors' => ['strategy_id' => 'Estratégia inexistente.']];
+diff --git a/app/Services/RolloverService.php b/app/Services/RolloverService.php
+index 9d83e72..c611533 100644
+--- a/app/Services/RolloverService.php
++++ b/app/Services/RolloverService.php
+@@ -40,8 +40,8 @@ final class RolloverService
+             foreach ($rows as $row) $multipliers[(int)$row['id']] = (int)$row['contract_multiplier'];
+ 
+             if ($strategyId !== null) {
+-                $q = $this->pdo->prepare('SELECT id FROM strategies WHERE id = :id');
+-                $q->execute(['id'=>$strategyId]);
++                $q = $this->pdo->prepare('SELECT id FROM strategies WHERE id = :id AND user_id = :user_id');
++                $q->execute(['id'=>$strategyId,'user_id'=>$userId]);
+                 if (!$q->fetchColumn()) return $this->reject(['strategy_id'=>'Estratégia inexistente.']);
+             } else {
+                 $strategyId = $source['strategy_id'] === null ? null : (int)$source['strategy_id'];
+diff --git a/app/Services/StrategyTemplateService.php b/app/Services/StrategyTemplateService.php
+new file mode 100644
+index 0000000..c4aceaf
+--- /dev/null
++++ b/app/Services/StrategyTemplateService.php
+@@ -0,0 +1,73 @@
++<?php
++
++declare(strict_types=1);
++
++namespace App\Services;
++
++use App\Domain\TemplateConstraints;
++use App\Repositories\StrategyTemplateRepository;
++use PDO;
++use Throwable;
++
++final class StrategyTemplateService
++{
++    public function __construct(private readonly PDO $pdo, private readonly StrategyTemplateRepository $repository) {}
++
++    public function list(int $userId): array
++    {
++        return $this->repository->listVisible($userId);
++    }
++
++    public function find(int $userId, int $id): ?array
++    {
++        return $this->repository->findVisible($userId, $id);
++    }
++
++    /** Cria um modelo próprio do usuário. Não aceita contratos, preços, datas ou quantidades reais. */
++    public function create(int $userId, array $input): array
++    {
++        $errors = [];
++        $name = trim((string) ($input['name'] ?? ''));
++        if ($name === '' || mb_strlen($name) > 120) $errors['name'] = 'Informe um nome de até 120 caracteres.';
++
++        $slots = $input['slots'] ?? null;
++        $clean = [];
++        $keys = [];
++        if (!is_array($slots) || $slots === [] || !array_is_list($slots)) {
++            $errors['slots'] = 'Informe ao menos uma perna (slot).';
++        } else {
++            foreach ($slots as $i => $s) {
++                $field = "slots.{$i}";
++                if (!is_array($s)) { $errors[$field] = 'Slot inválido.'; continue; }
++                $key = (string) ($s['slot_key'] ?? '');
++                $side = strtoupper((string) ($s['side'] ?? ''));
++                $type = strtoupper((string) ($s['option_type'] ?? ''));
++                $ratio = filter_var($s['ratio'] ?? 1, FILTER_VALIDATE_INT);
++                if (!preg_match('/^[a-z][a-z0-9_]{0,39}$/', $key)) $errors["{$field}.slot_key"] = 'Chave do slot deve usar minúsculas, números e _.';
++                elseif (in_array($key, $keys, true)) $errors["{$field}.slot_key"] = 'Chave de slot repetida.';
++                if (!in_array($side, ['BUY', 'SELL'], true)) $errors["{$field}.side"] = 'Lado deve ser BUY ou SELL.';
++                if (!in_array($type, ['CALL', 'PUT'], true)) $errors["{$field}.option_type"] = 'Tipo deve ser CALL ou PUT.';
++                if ($ratio === false || $ratio < 1 || $ratio > 100) $errors["{$field}.ratio"] = 'Proporção deve ser inteiro entre 1 e 100.';
++                $keys[] = $key;
++                $label = trim((string) ($s['label'] ?? ''));
++                $clean[] = ['slot_key' => $key, 'label' => $label !== '' ? $label : $key, 'side' => $side, 'option_type' => $type, 'ratio' => (int) $ratio];
++            }
++        }
++        $constraints = $input['constraints'] ?? [];
++        if ($errors === []) $errors += TemplateConstraints::validateDefinition($constraints, $keys);
++        if ($errors !== []) return ['success' => false, 'status' => 422, 'errors' => $errors];
++
++        try {
++            $this->pdo->beginTransaction();
++            $id = $this->repository->insert($userId, [
++                'name' => $name, 'description' => isset($input['description']) ? trim((string) $input['description']) : null,
++                'slots' => $clean, 'constraints' => $constraints,
++            ]);
++            $this->pdo->commit();
++        } catch (Throwable $e) {
++            if ($this->pdo->inTransaction()) $this->pdo->rollBack();
++            throw $e;
++        }
++        return ['success' => true, 'status' => 201, 'data' => $this->repository->findVisible($userId, $id)];
++    }
++}
+diff --git a/app/Services/StructuredPositionService.php b/app/Services/StructuredPositionService.php
+new file mode 100644
+index 0000000..f316724
+--- /dev/null
++++ b/app/Services/StructuredPositionService.php
+@@ -0,0 +1,191 @@
++<?php
++
++declare(strict_types=1);
++
++namespace App\Services;
++
++use App\Domain\TemplateConstraints;
++use App\Repositories\OperationRepository;
++use App\Repositories\StrategyTemplateRepository;
++use App\Repositories\StructuredPositionRepository;
++use DateTimeImmutable;
++use PDO;
++use Throwable;
++
++/**
++ * Registra uma posição estruturada: UM bloco comum + um bloco por slot do modelo.
++ * Lado, tipo, strike, vencimento e multiplicador são derivados do modelo/contrato; quantidade = ratio × base.
++ * Todas as operações do ledger, as pernas e o histórico são gravados em uma única transação.
++ * Convenção de sinais: quantity é sempre positiva; a direção está só em `side`;
++ * gross_cash_flow = −(preço × quantidade × multiplicador) em BUY e + em SELL (aplicado uma única vez).
++ */
++final class StructuredPositionService
++{
++    public function __construct(
++        private readonly PDO $pdo,
++        private readonly StrategyTemplateRepository $templates,
++        private readonly StructuredPositionRepository $positions,
++        private readonly OperationRepository $operations,
++    ) {}
++
++    public function register(int $userId, array $input): array
++    {
++        $errors = [];
++        $templateId = filter_var($input['strategy_template_id'] ?? null, FILTER_VALIDATE_INT);
++        $template = ($templateId === false || $templateId < 1) ? null : $this->templates->findVisible($userId, $templateId);
++        if ($template === null) return $this->fail(['strategy_template_id' => 'Modelo de estratégia inexistente.'], 404);
++        if ($template['needs_review'] || $template['slots'] === []) {
++            return $this->fail(['strategy_template_id' => 'Modelo legado exige revisão antes de ser usado.']);
++        }
++
++        $base = filter_var($input['base_quantity'] ?? null, FILTER_VALIDATE_INT);
++        if ($base === false || $base < 1) $errors['base_quantity'] = 'Informe a quantidade-base como inteiro positivo.';
++
++        $executedAt = (string) ($input['executed_at'] ?? date('Y-m-d H:i:s'));
++        if (DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $executedAt) === false) $errors['executed_at'] = 'Data/hora inválida (use AAAA-MM-DD HH:MM:SS).';
++
++        $legsInput = $input['legs'] ?? null;
++        $byKey = [];
++        if (!is_array($legsInput) || !array_is_list($legsInput)) {
++            $errors['legs'] = 'Informe as pernas da estrutura.';
++        } else {
++            foreach ($legsInput as $i => $leg) {
++                $key = is_array($leg) ? (string) ($leg['slot_key'] ?? '') : '';
++                if ($key === '' || isset($byKey[$key])) { $errors["legs.{$i}.slot_key"] = 'Slot ausente ou repetido.'; continue; }
++                $byKey[$key] = $leg;
++            }
++        }
++        $slotKeys = array_column($template['slots'], 'slot_key');
++        if (!isset($errors['legs'])) {
++            foreach (array_diff($slotKeys, array_keys($byKey)) as $missing) $errors["legs.{$missing}"] = 'Perna obrigatória não informada.';
++            foreach (array_diff(array_keys($byKey), $slotKeys) as $extra) $errors["legs.{$extra}"] = 'Slot não pertence ao modelo.';
++        }
++        // Erros estruturais das pernas impedem a validação por contrato; os demais são acumulados e devolvidos juntos.
++        if (array_filter(array_keys($errors), static fn(string $k): bool => str_starts_with($k, 'legs'))) return $this->fail($errors);
++
++        $contracts = [];
++        $assetId = null;
++        foreach ($template['slots'] as $slot) {
++            $key = $slot['slot_key'];
++            $leg = $byKey[$key];
++            $contractId = filter_var($leg['option_contract_id'] ?? null, FILTER_VALIDATE_INT);
++            $stmt = $this->pdo->prepare("SELECT * FROM option_contracts WHERE id = :id AND user_id = :u AND status = 'ACTIVE'");
++            $stmt->execute(['id' => $contractId === false ? 0 : $contractId, 'u' => $userId]);
++            $contract = $stmt->fetch(PDO::FETCH_ASSOC);
++            if (!$contract) { $errors["legs.{$key}.option_contract_id"] = 'Contrato inexistente, inativo ou de outro usuário.'; continue; }
++            if ($contract['option_type'] !== $slot['option_type']) $errors["legs.{$key}.option_contract_id"] = 'O contrato deve ser do tipo ' . $slot['option_type'] . '.';
++            if ($assetId !== null && (int) $contract['asset_id'] !== $assetId) $errors["legs.{$key}.option_contract_id"] = 'Todas as pernas devem ter o mesmo ativo-objeto.';
++            $assetId ??= (int) $contract['asset_id'];
++            $price = $leg['unit_price'] ?? null;
++            if (!is_numeric($price) || (float) $price < 0) $errors["legs.{$key}.unit_price"] = 'Informe um preço numérico maior ou igual a zero.';
++            $costs = $leg['costs'] ?? 0;
++            if (!is_numeric($costs) || (float) $costs < 0) $errors["legs.{$key}.costs"] = 'Custos devem ser numéricos e não negativos.';
++            $contracts[$key] = $contract;
++        }
++        if ($errors === []) $errors += TemplateConstraints::evaluate($template['constraints'], $contracts);
++        if ($errors !== []) return $this->fail($errors);
++
++        $uuid = $this->uuid();
++        $name = trim((string) ($input['name'] ?? '')) ?: $template['name'];
++        try {
++            $this->pdo->beginTransaction();
++            $positionId = $this->positions->insertPosition([
++                'uuid' => $uuid, 'user_id' => $userId, 'template_id' => $template['id'], 'asset_id' => $assetId,
++                'name' => mb_substr($name, 0, 120), 'base_quantity' => $base, 'executed_at' => $executedAt,
++                'declared' => $template['name'], 'notes' => isset($input['notes']) ? trim((string) $input['notes']) : null,
++            ]);
++            foreach ($template['slots'] as $slot) {
++                $key = $slot['slot_key'];
++                $contract = $contracts[$key];
++                $quantity = $slot['ratio'] * $base;
++                $price = round((float) $byKey[$key]['unit_price'], 6);
++                $costs = round((float) ($byKey[$key]['costs'] ?? 0), 6);
++                $gross = round($price * $quantity * (int) $contract['contract_multiplier'], 6) * ($slot['side'] === 'BUY' ? -1 : 1);
++                $operationId = $this->positions->insertLegOperation([
++                    'user_id' => $userId, 'contract_id' => (int) $contract['id'], 'strategy_id' => $template['legacy_strategy_id'] ?? null,
++                    'structured_id' => $positionId, 'side' => $slot['side'], 'quantity' => $quantity, 'unit_price' => $price,
++                    'gross' => $gross, 'costs' => $costs, 'executed_at' => $executedAt,
++                    'notes' => 'Posição estruturada ' . $uuid . ' — ' . $slot['label'],
++                ]);
++                $this->positions->insertLeg($positionId, $key, $operationId, (int) $contract['id']);
++                $this->operations->insertHistory($userId, $operationId, 'STRUCTURED_POSITION_OPENED', null, [
++                    'structured_position_uuid' => $uuid, 'slot_key' => $key, 'side' => $slot['side'], 'quantity' => $quantity,
++                    'unit_price' => $price, 'costs' => $costs, 'gross_cash_flow' => $gross,
++                ]);
++            }
++            $this->pdo->commit();
++        } catch (Throwable $e) {
++            if ($this->pdo->inTransaction()) $this->pdo->rollBack();
++            throw $e;
++        }
++        return ['success' => true, 'status' => 201, 'data' => $this->find($userId, $uuid)];
++    }
++
++    public function list(int $userId): array
++    {
++        return array_map([$this, 'present'], $this->positions->list($userId));
++    }
++
++    public function find(int $userId, string $uuid): ?array
++    {
++        $p = $this->positions->findByUuid($userId, $uuid);
++        return $p === null ? null : $this->present($p);
++    }
++
++    /** Agrega pernas, descrição legível, fluxo inicial e status derivado do ledger (nunca armazenado). */
++    private function present(array $p): array
++    {
++        $cash = 0.0;
++        $costs = 0.0;
++        $open = 0;
++        $closed = 0;
++        $legs = [];
++        foreach ($p['legs'] as $l) {
++            $qty = (int) $l['quantity'];
++            $closedQty = (int) $l['closed_quantity'];
++            $cash += (float) $l['gross_cash_flow'];
++            $costs += (float) $l['costs'];
++            $open += $qty - $closedQty;
++            $closed += $closedQty;
++            $legs[] = [
++                'slot_key' => $l['slot_key'], 'label' => $l['label'], 'operation_id' => (int) $l['operation_id'],
++                'option_contract_id' => (int) $l['option_contract_id'], 'contract_code' => $l['contract_code'],
++                'side' => $l['side'], 'option_type' => $l['option_type'], 'quantity' => $qty, 'open_quantity' => $qty - $closedQty,
++                'strike_price' => (float) $l['strike_price'], 'expiration_date' => $l['expiration_date'],
++                'unit_price' => (float) $l['unit_price'], 'costs' => (float) $l['costs'], 'gross_cash_flow' => (float) $l['gross_cash_flow'],
++                'description' => self::describe($l),
++            ];
++        }
++        $status = $open === 0 ? 'CLOSED' : ($closed > 0 ? 'PARTIAL' : 'OPEN');
++        return [
++            'uuid' => $p['uuid'], 'name' => $p['name'], 'strategy' => $p['declared_strategy'], 'inferred_strategy' => $p['inferred_strategy'],
++            'strategy_template_id' => (int) $p['strategy_template_id'], 'asset_id' => (int) $p['asset_id'], 'base_quantity' => $p['base_quantity'],
++            'executed_at' => $p['executed_at'], 'status' => $status, 'notes' => $p['notes'],
++            'initial_cash_flow' => round($cash, 6), 'initial_costs' => round($costs, 6),
++            'initial_kind' => $cash < 0 ? 'DEBIT' : ($cash > 0 ? 'CREDIT' : 'ZERO'),
++            'nearest_expiration' => $legs === [] ? null : min(array_column($legs, 'expiration_date')),
++            'legs' => $legs,
++        ];
++    }
++
++    private static function describe(array $l): string
++    {
++        $date = DateTimeImmutable::createFromFormat('Y-m-d', substr((string) $l['expiration_date'], 0, 10));
++        return sprintf('%s %d %s %s, strike %s, vencimento %s', $l['side'] === 'BUY' ? 'Comprar' : 'Vender', (int) $l['quantity'],
++            $l['option_type'] === 'CALL' ? 'Call' : 'Put', $l['contract_code'], rtrim(rtrim(number_format((float) $l['strike_price'], 6, '.', ''), '0'), '.'),
++            $date ? $date->format('d/m/Y') : (string) $l['expiration_date']);
++    }
++
++    private function uuid(): string
++    {
++        $b = random_bytes(16);
++        $b[6] = chr((ord($b[6]) & 0x0f) | 0x40);
++        $b[8] = chr((ord($b[8]) & 0x3f) | 0x80);
++        return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($b), 4));
++    }
++
++    private function fail(array $errors, int $status = 422): array
++    {
++        return ['success' => false, 'status' => $status, 'errors' => $errors];
++    }
++}
+diff --git a/database/migrations/20261024_000006_create_structured_positions.php b/database/migrations/20261024_000006_create_structured_positions.php
+new file mode 100644
+index 0000000..f3de68a
+--- /dev/null
++++ b/database/migrations/20261024_000006_create_structured_positions.php
+@@ -0,0 +1,169 @@
++<?php
++
++declare(strict_types=1);
++
++namespace Database\Migrations;
++
++use App\Domain\LegacyStrategyConverter;
++use App\Domain\StrategyCatalog;
++use PDO;
++
++/**
++ * Modelos de estratégia (esqueleto) e posições estruturadas (instância).
++ * Preserva `strategies` e `operations.strategy_id`; converte estratégias legadas em modelos
++ * (ou marca needs_review mantendo o JSON original em legacy_legs).
++ */
++final class CreateStructuredPositions
++{
++    public function up(PDO $pdo): void
++    {
++        $sqlite = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite';
++        $id = $sqlite ? 'INTEGER PRIMARY KEY AUTOINCREMENT' : 'SERIAL PRIMARY KEY';
++        $ts = $sqlite ? 'TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP' : 'TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP';
++        $json = $sqlite ? 'TEXT' : 'JSONB';
++
++        $pdo->exec("CREATE TABLE IF NOT EXISTS strategy_templates (
++            id {$id},
++            user_id INTEGER NULL,
++            code VARCHAR(60) NULL,
++            name VARCHAR(120) NOT NULL,
++            description TEXT NULL,
++            category VARCHAR(20) NOT NULL DEFAULT 'OPTIONS',
++            origin VARCHAR(10) NOT NULL DEFAULT 'USER' CHECK (origin IN ('SYSTEM','USER','LEGACY')),
++            support_level VARCHAR(20) NOT NULL DEFAULT 'REGISTRATION',
++            constraints {$json} NULL,
++            legacy_strategy_id INTEGER NULL,
++            legacy_legs TEXT NULL,
++            needs_review INTEGER NOT NULL DEFAULT 0,
++            review_reason TEXT NULL,
++            status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
++            created_at {$ts},
++            updated_at {$ts},
++            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
++            FOREIGN KEY (legacy_strategy_id) REFERENCES strategies(id) ON DELETE SET NULL
++        )");
++        $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS uq_templates_system_code ON strategy_templates(code) WHERE user_id IS NULL AND code IS NOT NULL');
++        $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS uq_templates_legacy ON strategy_templates(legacy_strategy_id) WHERE legacy_strategy_id IS NOT NULL');
++        $pdo->exec('CREATE INDEX IF NOT EXISTS idx_templates_user ON strategy_templates(user_id, status)');
++
++        $pdo->exec("CREATE TABLE IF NOT EXISTS strategy_template_slots (
++            id {$id},
++            template_id INTEGER NOT NULL,
++            position INTEGER NOT NULL,
++            slot_key VARCHAR(40) NOT NULL,
++            label VARCHAR(120) NOT NULL,
++            instrument_type VARCHAR(10) NOT NULL DEFAULT 'OPTION' CHECK (instrument_type IN ('OPTION')),
++            side VARCHAR(4) NOT NULL CHECK (side IN ('BUY','SELL')),
++            option_type VARCHAR(4) NOT NULL CHECK (option_type IN ('CALL','PUT')),
++            ratio INTEGER NOT NULL DEFAULT 1 CHECK (ratio > 0),
++            UNIQUE (template_id, slot_key),
++            FOREIGN KEY (template_id) REFERENCES strategy_templates(id) ON DELETE CASCADE
++        )");
++
++        $pdo->exec("CREATE TABLE IF NOT EXISTS structured_positions (
++            id {$id},
++            uuid VARCHAR(36) NOT NULL UNIQUE,
++            user_id INTEGER NOT NULL,
++            strategy_template_id INTEGER NOT NULL,
++            asset_id INTEGER NOT NULL,
++            name VARCHAR(120) NOT NULL,
++            base_quantity INTEGER NOT NULL CHECK (base_quantity > 0),
++            executed_at TIMESTAMP NOT NULL,
++            declared_strategy VARCHAR(120) NOT NULL,
++            inferred_strategy VARCHAR(120) NULL,
++            notes TEXT NULL,
++            created_at {$ts},
++            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
++            FOREIGN KEY (strategy_template_id) REFERENCES strategy_templates(id) ON DELETE RESTRICT,
++            FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE RESTRICT
++        )");
++        $pdo->exec('CREATE INDEX IF NOT EXISTS idx_structured_user_date ON structured_positions(user_id, executed_at)');
++
++        $pdo->exec("CREATE TABLE IF NOT EXISTS structured_position_legs (
++            id {$id},
++            structured_position_id INTEGER NOT NULL,
++            slot_key VARCHAR(40) NOT NULL,
++            operation_id INTEGER NOT NULL UNIQUE,
++            option_contract_id INTEGER NOT NULL,
++            UNIQUE (structured_position_id, slot_key),
++            FOREIGN KEY (structured_position_id) REFERENCES structured_positions(id) ON DELETE CASCADE,
++            FOREIGN KEY (operation_id) REFERENCES operations(id) ON DELETE RESTRICT,
++            FOREIGN KEY (option_contract_id) REFERENCES option_contracts(id) ON DELETE RESTRICT
++        )");
++
++        if (!$this->columnExists($pdo, 'operations', 'structured_position_id')) {
++            $pdo->exec('ALTER TABLE operations ADD COLUMN structured_position_id INTEGER NULL REFERENCES structured_positions(id) ON DELETE SET NULL');
++        }
++        $pdo->exec('CREATE INDEX IF NOT EXISTS idx_operations_structured ON operations(structured_position_id)');
++
++        $this->seedCatalog($pdo);
++        $this->convertLegacyStrategies($pdo);
++    }
++
++    public function down(PDO $pdo): void
++    {
++        $pdo->exec('DROP INDEX IF EXISTS idx_operations_structured');
++        $pdo->exec('ALTER TABLE operations DROP COLUMN structured_position_id');
++        $pdo->exec('DROP TABLE IF EXISTS structured_position_legs');
++        $pdo->exec('DROP TABLE IF EXISTS structured_positions');
++        $pdo->exec('DROP TABLE IF EXISTS strategy_template_slots');
++        $pdo->exec('DROP TABLE IF EXISTS strategy_templates');
++    }
++
++    private function columnExists(PDO $pdo, string $table, string $column): bool
++    {
++        if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite') {
++            foreach ($pdo->query("PRAGMA table_info({$table})")->fetchAll(PDO::FETCH_ASSOC) as $row) {
++                if ($row['name'] === $column) return true;
++            }
++            return false;
++        }
++        $q = $pdo->prepare('SELECT 1 FROM information_schema.columns WHERE table_name = :t AND column_name = :c');
++        $q->execute(['t' => $table, 'c' => $column]);
++        return (bool) $q->fetchColumn();
++    }
++
++    private function seedCatalog(PDO $pdo): void
++    {
++        foreach (StrategyCatalog::all() as $entry) {
++            $exists = $pdo->prepare('SELECT id FROM strategy_templates WHERE user_id IS NULL AND code = :code');
++            $exists->execute(['code' => $entry['code']]);
++            if ($exists->fetchColumn()) continue;
++            $this->insertTemplate($pdo, null, $entry['code'], $entry['name'], $entry['description'], 'SYSTEM', $entry['constraints'], null, null, false, null, $entry['slots']);
++        }
++    }
++
++    private function convertLegacyStrategies(PDO $pdo): void
++    {
++        $rows = $pdo->query('SELECT id, user_id, name, description, legs FROM strategies ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
++        $resolve = $pdo->prepare('SELECT option_type FROM option_contracts WHERE user_id = :u AND code = :c');
++        foreach ($rows as $row) {
++            $done = $pdo->prepare('SELECT 1 FROM strategy_templates WHERE legacy_strategy_id = :id');
++            $done->execute(['id' => $row['id']]);
++            if ($done->fetchColumn()) continue;
++            $raw = $row['legs'] === null ? null : (string) $row['legs'];
++            $result = LegacyStrategyConverter::convert($raw, function (string $code) use ($resolve, $row): ?string {
++                $resolve->execute(['u' => $row['user_id'], 'c' => $code]);
++                $type = $resolve->fetchColumn();
++                return $type === false ? null : (string) $type;
++            });
++            $this->insertTemplate($pdo, (int) $row['user_id'], null, (string) $row['name'], $row['description'], 'LEGACY',
++                $result['constraints'], (int) $row['id'], $raw, $result['needs_review'], $result['reason'], $result['slots']);
++        }
++    }
++
++    private function insertTemplate(PDO $pdo, ?int $userId, ?string $code, string $name, ?string $desc, string $origin, array $constraints, ?int $legacyId, ?string $legacyLegs, bool $needsReview, ?string $reason, array $slots): void
++    {
++        $ins = $pdo->prepare('INSERT INTO strategy_templates (user_id, code, name, description, origin, constraints, legacy_strategy_id, legacy_legs, needs_review, review_reason) VALUES (:user_id,:code,:name,:description,:origin,:constraints,:legacy_id,:legacy_legs,:needs_review,:reason)');
++        $ins->execute([
++            'user_id' => $userId, 'code' => $code, 'name' => $name, 'description' => $desc, 'origin' => $origin,
++            'constraints' => json_encode($constraints, JSON_THROW_ON_ERROR), 'legacy_id' => $legacyId, 'legacy_legs' => $legacyLegs,
++            'needs_review' => $needsReview ? 1 : 0, 'reason' => $reason,
++        ]);
++        $templateId = (int) $pdo->lastInsertId();
++        $slotIns = $pdo->prepare('INSERT INTO strategy_template_slots (template_id, position, slot_key, label, side, option_type, ratio) VALUES (:t,:p,:k,:l,:s,:o,:r)');
++        foreach (array_values($slots) as $pos => $slot) {
++            $slotIns->execute(['t' => $templateId, 'p' => $pos + 1, 'k' => $slot['slot_key'], 'l' => $slot['label'], 's' => $slot['side'], 'o' => $slot['option_type'], 'r' => $slot['ratio']]);
++        }
++    }
++}
+diff --git a/docs/API.md b/docs/API.md
+index dd1c825..3f00fa7 100644
+--- a/docs/API.md
++++ b/docs/API.md
+@@ -33,3 +33,15 @@ O fluxo de caixa bruto é -preço × quantidade × multiplicador para BUY e posi
+ ## Respostas e segurança
+ 
+ Sucesso usa {"success":true,"data":...}. Validação retorna HTTP 422, sessão ausente 401, recurso não encontrado 404 e falha CSRF 419. As consultas são sempre escopadas pelo usuário da sessão.
++
++## Modelos de estratégia e posições estruturadas
++
++Todas exigem sessão autenticada; `POST` exige token CSRF. Erros de validação: `422` com `errors` por campo (todos devolvidos juntos).
++
++- `GET /api/strategy-templates` — catálogo do sistema + modelos do usuário, com `slots` e `constraints`.
++- `POST /api/strategy-templates` — cria modelo próprio: `{"name","description?","slots":[{"slot_key","label?","side","option_type","ratio?"}],"constraints":[{"type":"strike_order|same_strike|same_expiration","slots":[...]}]}`.
++- `GET /api/strategy-templates/{id}` — `404` se inexistente ou de outro usuário.
++- `POST /api/structured-positions` — `{"strategy_template_id","base_quantity","executed_at?","name?","notes?","legs":[{"slot_key","option_contract_id","unit_price","costs?"}]}`. Cria posição, operações `OPEN`, pernas e histórico em uma transação.
++- `GET /api/structured-positions` e `GET /api/structured-positions/{uuid}` — posição com `status` derivado, `initial_cash_flow`, `initial_kind` (DEBIT/CREDIT/ZERO), `nearest_expiration` e `legs` (contrato, lado, quantidade, strike, vencimento, `description` legível).
++
++Exemplo (Compra de Call Spread, base 2): Compra 2 Call PETRC100 a 5,00 e venda 2 Call PETRC110 a 2,00, multiplicador 100 → fluxo inicial −600,00 (débito).
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 5e33dfc..761c090 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -46,3 +46,12 @@ Organizar a aplicação em camadas para manter a separação de responsabilidade
+ ## Continuidade
+ 
+ Consulte `docs/PROJECT_STATUS.md` e `docs/NEXT_STEPS.md` antes de alterações estruturais. O backend e o motor financeiro estão validados; a etapa final de integração visual da dashboard e a revisão de UX continuam como pendência de validação prática.
++
++## Modelos de estratégia e posições estruturadas
++
++- **Domínio sem I/O** em `app/Domain`: catálogo de modelos, avaliação de restrições declarativas (`strike_order`, `same_strike`, `same_expiration`; tipos desconhecidos são rejeitados, nada é executado) e conversão do JSON legado.
++- **Serviços** orquestram validação e transação; **repositórios** concentram SQL; o backend é a autoridade final de validação.
++- **Ledger append-only preservado:** as pernas são inseridas já com `structured_position_id` (sem UPDATE posterior) e sempre como lotes `OPEN`; não há alocação/netting automático contra posições opostas existentes no mesmo contrato.
++- **Status da posição estruturada é derivado** (OPEN/PARTIAL/CLOSED) a partir de `operation_closures`, não armazenado, para não ficar defasado.
++- **Convenção de sinais:** `quantity` sempre positiva; direção só em `side`; `gross_cash_flow = −preço×quantidade×multiplicador` em BUY e `+` em SELL, aplicado uma única vez. Débito inicial = soma negativa; crédito = positiva; custos reportados separadamente.
++- **Limitação conhecida:** valores monetários seguem em `float` com `round(…, 6)`, como no restante do ledger; migrar para decimal exato é pendência transversal.
+diff --git a/docs/DATABASE.md b/docs/DATABASE.md
+index f41a819..8e54204 100644
+--- a/docs/DATABASE.md
++++ b/docs/DATABASE.md
+@@ -28,3 +28,12 @@ PostgreSQL é o banco principal; SQLite é usado no desenvolvimento/testes quand
+ ## Integridade
+ 
+ As rotinas de aplicação validam titularidade do contrato e estratégia. Chaves estrangeiras preservam referências. Consultas e mutações financeiras sempre usam o user_id autenticado.
++
++## Migração 20261024_000006 — modelos e posições estruturadas
++
++- `strategy_templates` (`user_id` NULL = catálogo do sistema; `origin` SYSTEM/USER/LEGACY; `constraints` JSON; `legacy_strategy_id`, `legacy_legs`, `needs_review`, `review_reason`; índices únicos parciais por `code` do sistema e por `legacy_strategy_id`).
++- `strategy_template_slots` (`slot_key`, `label`, `instrument_type` = OPTION, `side`, `option_type`, `ratio > 0`; único por template + `slot_key`).
++- `structured_positions` (`uuid` único, `user_id`, `strategy_template_id`, `asset_id`, `base_quantity > 0`, `declared_strategy`, `inferred_strategy` NULL).
++- `structured_position_legs` (`operation_id` único, `option_contract_id`; único por posição + `slot_key`).
++- `operations.structured_position_id` NULL (FK `ON DELETE SET NULL`).
++- Idempotente (catálogo e conversão legada não duplicam); `down` remove tudo e a coluna nova.
+diff --git a/docs/DECISIONS.md b/docs/DECISIONS.md
+index 0698cf6..4885b4d 100644
+--- a/docs/DECISIONS.md
++++ b/docs/DECISIONS.md
+@@ -55,3 +55,13 @@
+ - Os dados são consumidos através da API do backend; não há mock de valores ou geração artificial de mercado na interface.
+ - A estrutura e o fluxo de carregamento foram validados do lado do código e do backend, mas a validação final em navegador, responsividade e revisão de UX ainda precisa ser executada em ambiente de UI.
+ - A etapa 8 deve ser tratada como parcialmente validada até a checagem prática em navegador e a revisão dos KPI com cenários reais.
++
++## Estratégia = esqueleto; posição estruturada = instância (2026-10-24)
++
++- **Decisão:** o cadastro de estratégia deixa de ser um JSON de pernas redigitado e passa a ser um *modelo* que só define a forma (slots, lado, tipo, proporção, restrições). A posição real é uma *posição estruturada* que agrupa as operações do ledger.
++- **Por quê:** evitar digitação duplicada, permitir que a dashboard mostre estratégia + contratos, e validar a estrutura no backend.
++- **Restrições declarativas, não código:** o JSON de restrições só aceita tipos conhecidos; nada é avaliado dinamicamente.
++- **Status derivado, não persistido.** Ledger continua append-only; `operations.structured_position_id` é gravado no INSERT.
++- **Compatibilidade:** `strategies`, `operations.strategy_id` e os endpoints antigos permanecem. Estratégias legadas viram modelos; as não interpretáveis ficam `needs_review` com o JSON original preservado, sem virar lista vazia.
++- **Catálogo conservador:** só entram estruturas com definição inequívoca e apenas com opções; variantes institucionais (ex.: Risk Reversal, Seagull) são modeladas como variantes nomeadas ("alta"). `support_level = REGISTRATION` significa que reconhecimento e payoff ainda não existem.
++- **Correção de segurança:** consultas de `strategy_id` em `OperationService` e `RolloverService` agora filtram por `user_id`.
+diff --git a/docs/MAPA_DO_SISTEMA.md b/docs/MAPA_DO_SISTEMA.md
+index e32d0ab..b033b82 100644
+--- a/docs/MAPA_DO_SISTEMA.md
++++ b/docs/MAPA_DO_SISTEMA.md
+@@ -131,3 +131,15 @@ Consulte `docs/PROJECT_STATUS.md` e `docs/NEXT_STEPS.md` antes de iniciar uma pe
+ 7. Executar testes aplicáveis e relatar o resultado real; declarar explicitamente o que não foi executado.
+ 8. Separar fatos confirmados, hipóteses, decisões propostas e trabalho futuro.
+ 9. Nunca declarar uma funcionalidade concluída apenas porque sua tela, endpoint ou documentação existe.
++
++## Atualização 2026-10-24 — Modelos de estratégia e posições estruturadas
++
++**Glossário (usar sempre estes termos):** *modelo de estratégia* (esqueleto), *posição estruturada* (instância), *posição líquida por contrato* (derivada do ledger).
++
++Arquivos novos: `app/Domain/{StrategyCatalog,TemplateConstraints,LegacyStrategyConverter}.php`, `app/Repositories/{StrategyTemplateRepository,StructuredPositionRepository}.php`, `app/Services/{StrategyTemplateService,StructuredPositionService}.php`, `app/Controllers/StructuredPositionController.php`, `database/migrations/20261024_000006_create_structured_positions.php`, `tests/Feature/{StructuredPositionTest,LegacyStrategyMigrationTest}.php`.
++
++Rotas novas em `routes/api.php`: `/api/strategy-templates` (GET, POST), `/api/strategy-templates/{id}` (GET), `/api/structured-positions` (GET, POST), `/api/structured-positions/{uuid}` (GET).
++
++Fluxo de registro: `StructuredPositionController -> StructuredPositionService::register` valida modelo, pernas, contratos (do usuário, ativos, tipo correto, mesmo ativo-objeto) e restrições; grava posição + N operações `OPEN` + pernas + histórico em uma transação.
++
++Fatos: `strategies` e `strategies.legs` continuam existindo (compatibilidade); `operations.strategy_id` mantido; `operations.structured_position_id` é novo e nulo para operações avulsas/legadas. A tela "Cadastrar estratégia" (JSON de pernas), a dashboard e as rolagens **ainda não** usam o novo modelo.
+diff --git a/docs/NEXT_STEPS.md b/docs/NEXT_STEPS.md
+index 6d5f1be..d3a47d4 100644
+--- a/docs/NEXT_STEPS.md
++++ b/docs/NEXT_STEPS.md
+@@ -55,3 +55,13 @@ Foi adicionada uma primeira interface em `resources/views/dashboard/index.php` c
+ 5. Concluir a integração da calculadora ao motor TypeScript e finalizar a etapa 7 antes de declarar a interface como pronta.
+ 
+ A implementação inicial usa dados reais dos endpoints existentes e não cria preços fictícios. O backend permanece validado, mas a etapa visual ainda exige teste de navegador e revisão de UX antes de fechamento formal.
++
++## Próximos passos — reformulação de estratégias
++
++1. **Etapa E:** trocar "Cadastrar estratégia (JSON)" por "Modelos de estratégia"; criar "Registrar posição" dinâmico (bloco comum + um bloco por slot, contratos filtrados por ativo/tipo/vencimento, prévia de débito/crédito); nova seção "Posições estruturadas" na dashboard com os contratos que compõem cada estrutura e "Operações avulsas" separadas.
++2. **Etapa F:** encerrar/rolar a estrutura inteira (proporcional e atômico), refletindo no status derivado.
++3. **Etapa G:** reconhecimento (declarada vs inferida, ambiguidade) e payoff/breakevens sobre as pernas reais, reaproveitando `src/financial-engine`; só então promover `support_level` de `REGISTRATION` para um nível superior.
++4. Rodar a suíte com PHPUnit 11 via Composer e testar a migração 000006 em PostgreSQL 16.
++5. Decidir a modelagem de pernas de ativo (collar/fence com ativo) e de NDF/swap.
++6. Migrar valores monetários de `float` para decimal exato.
++7. Ferramenta opcional de agrupamento manual de operações legadas em uma posição estruturada (sempre com confirmação do usuário).
+diff --git a/docs/PROJECT_STATUS.md b/docs/PROJECT_STATUS.md
+index 1bf4a1a..877c77d 100644
+--- a/docs/PROJECT_STATUS.md
++++ b/docs/PROJECT_STATUS.md
+@@ -76,3 +76,15 @@ Concluir a integração da view ao módulo TypeScript em `src/financial-engine`,
+ - Adicionados filtros por código/estado da posição e por contrato/lado do lote, gráfico comparativo por contrato, alertas de ausência de cotação e vencimentos próximos, estados de carregamento, mensagens de erro e botão para atualizar.
+ - Resultado não realizado aparece como indisponível se algum contrato aberto não tiver cotação; fluxo de caixa é rotulado separadamente de lucro.
+ - **Status atual:** a estrutura da dashboard está implementada e a aplicação PHP continua validada, mas a checagem de navegador, responsividade e UX real ainda não foi executada neste ambiente; por isso a Etapa 8 deve ser tratada como parcialmente validada e não finalizada.
++
++## Reformulação de estratégias — Etapas A, B, C e D (API) concluídas; E–H pendentes
++
++**Implementado e validado por testes automáticos (36 testes / 178 asserções, PHPUnit 9.6 local):**
++- Modelos de estratégia (catálogo de 17: Compra/Venda de Call e Put, Call/Put Spread compra e venda, Straddle, Strangle, Fly de Call e de Put, Condor de Call, Risk Reversal (alta), Seagull (alta)) e modelos próprios do usuário.
++- Registro de posição estruturada atômico, com quantidade por proporção, débito/crédito inicial, descrição legível por perna e status derivado.
++- Migração do legado (JSON interpretável vira modelo; o restante fica `needs_review` com `legacy_legs` preservado) e `down` funcional.
++- Isolamento por usuário em modelos, posições, contratos e `strategy_id` (correção de falha pré-existente).
++
++**Não implementado:** telas (E), encerramento/rolagem por estrutura (F), reconhecimento declarado vs inferido e payoff/breakevens (G). Collar/Fence/Booster/Step Up, estruturas com ativo-objeto, barreiras, NDF e swap **não** estão no catálogo: o ledger exige `option_contract_id`, então pernas de ativo e instrumentos não-opção exigem decisão de modelagem própria.
++
++**Riscos:** não testado em PostgreSQL nem em navegador; `float` monetário; sem netting para pernas abertas sobre contrato com posição oposta; migração 000006 em PostgreSQL usa índices parciais e `ALTER ... ADD COLUMN ... REFERENCES` (sintaxe válida, mas não executada aqui).
+diff --git a/routes/api.php b/routes/api.php
+index 94d0b06..04e6f24 100644
+--- a/routes/api.php
++++ b/routes/api.php
+@@ -7,6 +7,7 @@ use App\Controllers\FinancialRegistrationController;
+ use App\Controllers\HomeController;
+ use App\Controllers\OperationController;
+ use App\Controllers\RolloverController;
++use App\Controllers\StructuredPositionController;
+ 
+ return [
+     ['GET', '/api/status', [HomeController::class, 'apiStatus']],
+@@ -39,4 +40,10 @@ return [
+     ['GET', '/api/rollovers', [RolloverController::class, 'handle']],
+     ['GET', '/api/rollovers/{uuid}', [RolloverController::class, 'handle']],
+     ['POST', '/api/rollovers', [RolloverController::class, 'handle']],
++    ['GET', '/api/strategy-templates', [StructuredPositionController::class, 'handle']],
++    ['POST', '/api/strategy-templates', [StructuredPositionController::class, 'handle']],
++    ['GET', '/api/strategy-templates/{id}', [StructuredPositionController::class, 'handle']],
++    ['GET', '/api/structured-positions', [StructuredPositionController::class, 'handle']],
++    ['POST', '/api/structured-positions', [StructuredPositionController::class, 'handle']],
++    ['GET', '/api/structured-positions/{uuid}', [StructuredPositionController::class, 'handle']],
+ ];
+diff --git a/tests/Feature/LegacyStrategyMigrationTest.php b/tests/Feature/LegacyStrategyMigrationTest.php
+new file mode 100644
+index 0000000..dacd82d
+--- /dev/null
++++ b/tests/Feature/LegacyStrategyMigrationTest.php
+@@ -0,0 +1,97 @@
++<?php
++
++declare(strict_types=1);
++
++namespace Tests\Feature;
++
++use App\Domain\LegacyStrategyConverter;
++use Database\Migrations\CreateOperationsAndPositions;
++use Database\Migrations\CreateStructuredPositions;
++use PDO;
++use PHPUnit\Framework\TestCase;
++
++final class LegacyStrategyMigrationTest extends TestCase
++{
++    private PDO $pdo;
++
++    protected function setUp(): void
++    {
++        $this->pdo = new PDO('sqlite::memory:');
++        $this->pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
++        $this->pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
++        $this->pdo->exec('PRAGMA foreign_keys = ON');
++        $this->pdo->exec('CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL)');
++        $this->pdo->exec("CREATE TABLE assets (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, symbol TEXT NOT NULL, name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'ACTIVE')");
++        $this->pdo->exec('CREATE TABLE strategies (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, name TEXT NOT NULL, description TEXT NULL, legs TEXT NULL, FOREIGN KEY(user_id) REFERENCES users(id))');
++        $this->pdo->exec("CREATE TABLE option_contracts (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, asset_id INTEGER NOT NULL, code TEXT NOT NULL, option_type TEXT NOT NULL, strike_price NUMERIC NOT NULL, expiration_date TEXT NOT NULL, contract_multiplier INTEGER NOT NULL DEFAULT 100, status TEXT NOT NULL DEFAULT 'ACTIVE')");
++        $this->pdo->exec("INSERT INTO users (username,password_hash) VALUES ('u','h')");
++        $this->pdo->exec("INSERT INTO assets (user_id,symbol,name) VALUES (1,'PETR4','Petrobras')");
++        $this->pdo->exec("INSERT INTO option_contracts (user_id,asset_id,code,option_type,strike_price,expiration_date) VALUES (1,1,'PETR C100','CALL',100,'2026-12-18')");
++        require_once dirname(__DIR__, 2) . '/database/migrations/20261023_000003_create_operations_and_positions.php';
++        require_once dirname(__DIR__, 2) . '/database/migrations/20261024_000006_create_structured_positions.php';
++        (new CreateOperationsAndPositions())->up($this->pdo);
++    }
++
++    private function legacy(int $id): array
++    {
++        return $this->pdo->query("SELECT * FROM strategy_templates WHERE legacy_strategy_id = {$id}")->fetch();
++    }
++
++    public function testLegacyStrategiesAreConvertedOrFlaggedWithoutDataLoss(): void
++    {
++        $invalid = '[{"side":"BUY",';
++        $insert = $this->pdo->prepare('INSERT INTO strategies (user_id, name, legs) VALUES (1, :n, :l)');
++        foreach ([['Explícita', '[{"side":"BUY","option_type":"CALL"},{"side":"SELL","option_type":"CALL","quantity":2}]'],
++                  ['Por contrato', '[{"side":"BUY","contract_code":"PETR C100"}]'],
++                  ['JSON inválido', $invalid], ['Sem pernas', null], ['Código desconhecido', '[{"side":"BUY","contract_code":"NAOEXISTE"}]']] as [$n, $l]) {
++            $insert->execute(['n' => $n, 'l' => $l]);
++        }
++        $this->pdo->exec("INSERT INTO operations (user_id, option_contract_id, strategy_id, side, quantity, unit_price, gross_cash_flow, executed_at) VALUES (1,1,1,'BUY',1,5,-500,'2026-10-24 10:00:00')");
++
++        (new CreateStructuredPositions())->up($this->pdo);
++
++        $explicit = $this->legacy(1);
++        self::assertSame(0, (int) $explicit['needs_review']);
++        self::assertSame('LEGACY', $explicit['origin']);
++        $slots = $this->pdo->query("SELECT slot_key, side, option_type, ratio FROM strategy_template_slots WHERE template_id = {$explicit['id']} ORDER BY position")->fetchAll();
++        self::assertSame([['slot_key' => 'leg_1', 'side' => 'BUY', 'option_type' => 'CALL', 'ratio' => 1], ['slot_key' => 'leg_2', 'side' => 'SELL', 'option_type' => 'CALL', 'ratio' => 2]], $slots);
++
++        self::assertSame(0, (int) $this->legacy(2)['needs_review']);
++
++        $bad = $this->legacy(3);
++        self::assertSame(1, (int) $bad['needs_review']);
++        self::assertSame($invalid, $bad['legacy_legs'], 'O JSON original inválido deve ser preservado.');
++        self::assertSame(0, (int) $this->pdo->query("SELECT COUNT(*) FROM strategy_template_slots WHERE template_id = {$bad['id']}")->fetchColumn());
++        self::assertSame(1, (int) $this->legacy(4)['needs_review']);
++        self::assertSame(1, (int) $this->legacy(5)['needs_review']);
++
++        // dados antigos intactos
++        self::assertSame(5, (int) $this->pdo->query('SELECT COUNT(*) FROM strategies')->fetchColumn());
++        self::assertSame(1, (int) $this->pdo->query('SELECT strategy_id FROM operations')->fetchColumn());
++        self::assertNull($this->pdo->query('SELECT structured_position_id FROM operations')->fetchColumn());
++
++        // idempotente
++        $total = (int) $this->pdo->query('SELECT COUNT(*) FROM strategy_templates')->fetchColumn();
++        (new CreateStructuredPositions())->up($this->pdo);
++        self::assertSame($total, (int) $this->pdo->query('SELECT COUNT(*) FROM strategy_templates')->fetchColumn());
++    }
++
++    public function testConverterRejectsInvalidShapesInsteadOfReturningEmptyList(): void
++    {
++        $none = static fn(string $c): ?string => null;
++        foreach (['{"side":"BUY"}', '[]', '"texto"', '[1]', '[{"side":"HOLD","option_type":"CALL"}]', '[{"side":"BUY","option_type":"CALL","ratio":0}]'] as $raw) {
++            $r = LegacyStrategyConverter::convert($raw, $none);
++            self::assertTrue($r['needs_review'], $raw);
++            self::assertNotNull($r['reason']);
++        }
++    }
++
++    public function testMigrationCanBeRolledBack(): void
++    {
++        (new CreateStructuredPositions())->up($this->pdo);
++        (new CreateStructuredPositions())->down($this->pdo);
++        self::assertSame(0, (int) $this->pdo->query("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('strategy_templates','structured_positions')")->fetchColumn());
++        $cols = array_column($this->pdo->query('PRAGMA table_info(operations)')->fetchAll(), 'name');
++        self::assertNotContains('structured_position_id', $cols);
++    }
++}
+diff --git a/tests/Feature/StructuredPositionTest.php b/tests/Feature/StructuredPositionTest.php
+new file mode 100644
+index 0000000..50640e8
+--- /dev/null
++++ b/tests/Feature/StructuredPositionTest.php
+@@ -0,0 +1,293 @@
++<?php
++
++declare(strict_types=1);
++
++namespace Tests\Feature;
++
++use App\Repositories\OperationRepository;
++use App\Repositories\StrategyTemplateRepository;
++use App\Repositories\StructuredPositionRepository;
++use App\Services\OperationService;
++use App\Services\StrategyTemplateService;
++use App\Services\StructuredPositionService;
++use Database\Migrations\CreateOperationsAndPositions;
++use Database\Migrations\CreateStructuredPositions;
++use PDO;
++use PHPUnit\Framework\TestCase;
++
++final class StructuredPositionTest extends TestCase
++{
++    private PDO $pdo;
++    private StructuredPositionService $service;
++    private StrategyTemplateService $templates;
++
++    protected function setUp(): void
++    {
++        $this->pdo = new PDO('sqlite::memory:');
++        $this->pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
++        $this->pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
++        $this->pdo->exec('PRAGMA foreign_keys = ON');
++        $this->pdo->exec('CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL)');
++        $this->pdo->exec("CREATE TABLE assets (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, symbol TEXT NOT NULL, name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'ACTIVE', FOREIGN KEY(user_id) REFERENCES users(id))");
++        $this->pdo->exec('CREATE TABLE strategies (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, name TEXT NOT NULL, description TEXT NULL, legs TEXT NULL, FOREIGN KEY(user_id) REFERENCES users(id))');
++        $this->pdo->exec("CREATE TABLE option_contracts (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, asset_id INTEGER NOT NULL, code TEXT NOT NULL, option_type TEXT NOT NULL, strike_price NUMERIC NOT NULL, expiration_date TEXT NOT NULL, contract_multiplier INTEGER NOT NULL DEFAULT 100, status TEXT NOT NULL DEFAULT 'ACTIVE', FOREIGN KEY(user_id) REFERENCES users(id), FOREIGN KEY(asset_id) REFERENCES assets(id))");
++        $this->pdo->exec("INSERT INTO users (username,password_hash) VALUES ('owner','h'),('other','h2')");
++        $this->pdo->exec("INSERT INTO assets (user_id,symbol,name) VALUES (1,'PETR4','Petrobras'),(1,'VALE3','Vale'),(2,'PETR4','Petrobras')");
++        // user 1, ativo 1: ids 1..5 ; ativo 2: id 6 ; user 2: id 7
++        $this->pdo->exec("INSERT INTO option_contracts (user_id,asset_id,code,option_type,strike_price,expiration_date) VALUES
++            (1,1,'PETRC90','CALL',90,'2026-12-18'),
++            (1,1,'PETRC100','CALL',100,'2026-12-18'),
++            (1,1,'PETRC110','CALL',110,'2026-12-18'),
++            (1,1,'PETRC110J','CALL',110,'2027-01-15'),
++            (1,1,'PETRP90','PUT',90,'2026-12-18'),
++            (1,2,'VALEC100','CALL',100,'2026-12-18'),
++            (2,3,'PETRC100','CALL',100,'2026-12-18')");
++        require_once dirname(__DIR__, 2) . '/database/migrations/20261023_000003_create_operations_and_positions.php';
++        require_once dirname(__DIR__, 2) . '/database/migrations/20261024_000006_create_structured_positions.php';
++        (new CreateOperationsAndPositions())->up($this->pdo);
++        (new CreateStructuredPositions())->up($this->pdo);
++        $repo = new StrategyTemplateRepository($this->pdo);
++        $this->templates = new StrategyTemplateService($this->pdo, $repo);
++        $this->service = new StructuredPositionService($this->pdo, $repo, new StructuredPositionRepository($this->pdo), new OperationRepository($this->pdo));
++    }
++
++    private function templateId(string $code): int
++    {
++        $stmt = $this->pdo->prepare('SELECT id FROM strategy_templates WHERE user_id IS NULL AND code = :c');
++        $stmt->execute(['c' => $code]);
++        return (int) $stmt->fetchColumn();
++    }
++
++    private function rows(string $table): int
++    {
++        return (int) $this->pdo->query("SELECT COUNT(*) FROM {$table}")->fetchColumn();
++    }
++
++    private function callSpread(array $overrides = []): array
++    {
++        return array_replace([
++            'strategy_template_id' => $this->templateId('call_spread_buy'), 'base_quantity' => 2, 'executed_at' => '2026-10-24 10:00:00',
++            'legs' => [
++                ['slot_key' => 'long_call', 'option_contract_id' => 2, 'unit_price' => '5.00'],
++                ['slot_key' => 'short_call', 'option_contract_id' => 3, 'unit_price' => '2.00'],
++            ],
++        ], $overrides);
++    }
++
++    public function testCatalogIsSeededOnceAndIsIdempotent(): void
++    {
++        $before = $this->rows('strategy_templates');
++        self::assertGreaterThanOrEqual(17, $before);
++        (new CreateStructuredPositions())->up($this->pdo);
++        self::assertSame($before, $this->rows('strategy_templates'));
++        self::assertSame('REGISTRATION', $this->pdo->query("SELECT support_level FROM strategy_templates WHERE code='call_spread_buy'")->fetchColumn());
++    }
++
++    public function testCallSpreadCreatesOneOperationPerLegWithDerivedFieldsAndInitialDebit(): void
++    {
++        $result = $this->service->register(1, $this->callSpread());
++        self::assertTrue($result['success'], json_encode($result));
++        $p = $result['data'];
++
++        self::assertSame('Compra de Call Spread', $p['strategy']);
++        self::assertSame('OPEN', $p['status']);
++        self::assertSame(2, $this->rows('operations'));
++        self::assertSame(2, $this->rows('structured_position_legs'));
++        // BUY 5,00 × 2 × 100 = −1000 ; SELL 2,00 × 2 × 100 = +400 ; líquido −600 (débito)
++        self::assertSame(-600.0, $p['initial_cash_flow']);
++        self::assertSame('DEBIT', $p['initial_kind']);
++        self::assertSame('2026-12-18', $p['nearest_expiration']);
++        [$long, $short] = $p['legs'];
++        self::assertSame(['BUY', 2, -1000.0], [$long['side'], $long['quantity'], $long['gross_cash_flow']]);
++        self::assertSame(['SELL', 2, 400.0], [$short['side'], $short['quantity'], $short['gross_cash_flow']]);
++        self::assertSame('Comprar 2 Call PETRC100, strike 100, vencimento 18/12/2026', $long['description']);
++        self::assertSame('Vender 2 Call PETRC110, strike 110, vencimento 18/12/2026', $short['description']);
++        self::assertSame(2, (int) $this->pdo->query('SELECT COUNT(*) FROM operations WHERE structured_position_id IS NOT NULL')->fetchColumn());
++        self::assertSame(2, (int) $this->pdo->query("SELECT COUNT(*) FROM operation_history WHERE action='STRUCTURED_POSITION_OPENED'")->fetchColumn());
++    }
++
++    public function testCreditStructureIsReportedAsCredit(): void
++    {
++        $result = $this->service->register(1, $this->callSpread([
++            'strategy_template_id' => $this->templateId('call_spread_sell'), 'base_quantity' => 1,
++            'legs' => [
++                ['slot_key' => 'short_call', 'option_contract_id' => 2, 'unit_price' => 5],
++                ['slot_key' => 'long_call', 'option_contract_id' => 3, 'unit_price' => 2],
++            ],
++        ]));
++        self::assertTrue($result['success']);
++        self::assertSame(300.0, $result['data']['initial_cash_flow']); // +500 − 200
++        self::assertSame('CREDIT', $result['data']['initial_kind']);
++    }
++
++    public function testRatioMultipliesBaseQuantity(): void
++    {
++        $result = $this->service->register(1, [
++            'strategy_template_id' => $this->templateId('long_call_fly'), 'base_quantity' => 3, 'executed_at' => '2026-10-24 10:00:00',
++            'legs' => [
++                ['slot_key' => 'wing_low', 'option_contract_id' => 1, 'unit_price' => 12, 'costs' => 1.5],
++                ['slot_key' => 'body', 'option_contract_id' => 2, 'unit_price' => 6],
++                ['slot_key' => 'wing_high', 'option_contract_id' => 3, 'unit_price' => 2],
++            ],
++        ]);
++        self::assertTrue($result['success'], json_encode($result));
++        $q = array_column($result['data']['legs'], 'quantity', 'slot_key');
++        self::assertSame(['wing_low' => 3, 'body' => 6, 'wing_high' => 3], $q);
++        // −12·3·100 + 6·6·100 − 2·3·100 = −3600 + 3600 − 600 = −600
++        self::assertSame(-600.0, $result['data']['initial_cash_flow']);
++        self::assertSame(1.5, $result['data']['initial_costs']);
++    }
++
++    public function testStrikeOrderViolationIsRejectedWithoutWritingAnything(): void
++    {
++        $result = $this->service->register(1, $this->callSpread(['legs' => [
++            ['slot_key' => 'long_call', 'option_contract_id' => 3, 'unit_price' => 5],
++            ['slot_key' => 'short_call', 'option_contract_id' => 2, 'unit_price' => 2],
++        ]]));
++        self::assertFalse($result['success']);
++        self::assertSame(422, $result['status']);
++        self::assertStringContainsString('strike', implode(' ', $result['errors']));
++        self::assertSame(0, $this->rows('operations'));
++        self::assertSame(0, $this->rows('structured_positions'));
++    }
++
++    public function testDifferentExpirationsAreRejectedWhenModelRequiresSameExpiration(): void
++    {
++        $result = $this->service->register(1, $this->callSpread(['legs' => [
++            ['slot_key' => 'long_call', 'option_contract_id' => 2, 'unit_price' => 5],
++            ['slot_key' => 'short_call', 'option_contract_id' => 4, 'unit_price' => 2],
++        ]]));
++        self::assertFalse($result['success']);
++        self::assertStringContainsString('vencimento', implode(' ', $result['errors']));
++    }
++
++    public function testStraddleRequiresSameStrike(): void
++    {
++        $bad = $this->service->register(1, [
++            'strategy_template_id' => $this->templateId('long_straddle'), 'base_quantity' => 1,
++            'legs' => [['slot_key' => 'long_call', 'option_contract_id' => 2, 'unit_price' => 4], ['slot_key' => 'long_put', 'option_contract_id' => 5, 'unit_price' => 3]],
++        ]);
++        self::assertFalse($bad['success']);
++        self::assertStringContainsString('mesmo strike', implode(' ', $bad['errors']));
++    }
++
++    public function testValidationRejectsMissingExtraWrongTypeAndInvalidNumbers(): void
++    {
++        $missing = $this->service->register(1, $this->callSpread(['legs' => [['slot_key' => 'long_call', 'option_contract_id' => 2, 'unit_price' => 5]]]));
++        self::assertArrayHasKey('legs.short_call', $missing['errors']);
++
++        $extra = $this->service->register(1, $this->callSpread(['legs' => [
++            ['slot_key' => 'long_call', 'option_contract_id' => 2, 'unit_price' => 5], ['slot_key' => 'short_call', 'option_contract_id' => 3, 'unit_price' => 2],
++            ['slot_key' => 'ghost', 'option_contract_id' => 3, 'unit_price' => 2],
++        ]]));
++        self::assertArrayHasKey('legs.ghost', $extra['errors']);
++
++        $wrongType = $this->service->register(1, $this->callSpread(['legs' => [
++            ['slot_key' => 'long_call', 'option_contract_id' => 5, 'unit_price' => 5], ['slot_key' => 'short_call', 'option_contract_id' => 3, 'unit_price' => 2],
++        ]]));
++        self::assertArrayHasKey('legs.long_call.option_contract_id', $wrongType['errors']);
++
++        $badNumbers = $this->service->register(1, $this->callSpread(['base_quantity' => 0, 'executed_at' => 'ontem', 'legs' => [
++            ['slot_key' => 'long_call', 'option_contract_id' => 2, 'unit_price' => -1], ['slot_key' => 'short_call', 'option_contract_id' => 3, 'unit_price' => 'abc', 'costs' => -2],
++        ]]));
++        foreach (['base_quantity', 'executed_at', 'legs.long_call.unit_price', 'legs.short_call.unit_price', 'legs.short_call.costs'] as $k) self::assertArrayHasKey($k, $badNumbers['errors']);
++        self::assertSame(0, $this->rows('operations'));
++    }
++
++    public function testLegsFromDifferentUnderlyingAssetsAreRejected(): void
++    {
++        $result = $this->service->register(1, $this->callSpread(['legs' => [
++            ['slot_key' => 'long_call', 'option_contract_id' => 2, 'unit_price' => 5], ['slot_key' => 'short_call', 'option_contract_id' => 6, 'unit_price' => 2],
++        ]]));
++        self::assertFalse($result['success']);
++        self::assertStringContainsString('mesmo ativo-objeto', implode(' ', $result['errors']));
++    }
++
++    public function testFailureWhileSavingALegRollsBackEverything(): void
++    {
++        $this->pdo->exec("CREATE TRIGGER force_failure BEFORE INSERT ON structured_position_legs WHEN NEW.slot_key = 'short_call' BEGIN SELECT RAISE(ABORT, 'falha forçada'); END");
++        try {
++            $this->service->register(1, $this->callSpread());
++            self::fail('Era esperada uma exceção.');
++        } catch (\Throwable $e) {
++            self::assertStringContainsString('falha forçada', $e->getMessage());
++        }
++        foreach (['structured_positions', 'structured_position_legs', 'operations', 'operation_history'] as $table) self::assertSame(0, $this->rows($table), $table);
++        self::assertFalse($this->pdo->inTransaction());
++    }
++
++    public function testStatusIsDerivedFromLedgerClosures(): void
++    {
++        $p = $this->service->register(1, $this->callSpread())['data'];
++        [$long, $short] = $p['legs'];
++        // operação de encerramento fictícia para satisfazer a FK
++        $this->pdo->exec("INSERT INTO operations (user_id, option_contract_id, side, quantity, unit_price, gross_cash_flow, executed_at, operation_kind) VALUES (1,2,'SELL',1,1,100,'2026-10-25 10:00:00','CLOSE'),(1,3,'BUY',2,1,-200,'2026-10-25 10:00:00','CLOSE'),(1,2,'SELL',1,1,100,'2026-10-25 11:00:00','CLOSE')");
++        $ins = $this->pdo->prepare('INSERT INTO operation_closures (user_id, opening_operation_id, closing_operation_id, quantity, realized_result) VALUES (1,:o,:c,:q,0)');
++        $ins->execute(['o' => $long['operation_id'], 'c' => 3, 'q' => 1]);
++        self::assertSame('PARTIAL', $this->service->find(1, $p['uuid'])['status']);
++        $ins->execute(['o' => $short['operation_id'], 'c' => 4, 'q' => 2]);
++        $ins->execute(['o' => $long['operation_id'], 'c' => 5, 'q' => 1]);
++        $after = $this->service->find(1, $p['uuid']);
++        self::assertSame('CLOSED', $after['status']);
++        self::assertSame([0, 0], array_column($after['legs'], 'open_quantity'));
++    }
++
++    public function testUserCannotReadOrUseAnotherUsersData(): void
++    {
++        $p = $this->service->register(1, $this->callSpread())['data'];
++        self::assertNull($this->service->find(2, $p['uuid']));
++        self::assertSame([], $this->service->list(2));
++        self::assertCount(1, $this->service->list(1));
++
++        // contrato de outro usuário não pode compor a posição
++        $theirs = $this->service->register(2, $this->callSpread(['legs' => [
++            ['slot_key' => 'long_call', 'option_contract_id' => 7, 'unit_price' => 5], ['slot_key' => 'short_call', 'option_contract_id' => 3, 'unit_price' => 2],
++        ]]));
++        self::assertFalse($theirs['success']);
++        self::assertArrayHasKey('legs.short_call.option_contract_id', $theirs['errors']);
++
++        // modelo privado de um usuário é invisível para o outro; o catálogo do sistema é visível para ambos
++        $mine = $this->templates->create(1, ['name' => 'Meu modelo', 'slots' => [['slot_key' => 'a', 'side' => 'BUY', 'option_type' => 'CALL']]]);
++        self::assertTrue($mine['success']);
++        $id = $mine['data']['id'];
++        self::assertNull($this->templates->find(2, $id));
++        self::assertSame(404, $this->service->register(2, $this->callSpread(['strategy_template_id' => $id]))['status']);
++        self::assertNotNull($this->templates->find(2, $this->templateId('long_call')));
++    }
++
++    public function testTemplateCreationValidatesSlotsAndConstraints(): void
++    {
++        $bad = $this->templates->create(1, ['name' => '', 'slots' => [
++            ['slot_key' => 'A b', 'side' => 'HOLD', 'option_type' => 'X', 'ratio' => 0],
++            ['slot_key' => 'ok', 'side' => 'BUY', 'option_type' => 'CALL'], ['slot_key' => 'ok', 'side' => 'BUY', 'option_type' => 'CALL'],
++        ]]);
++        self::assertFalse($bad['success']);
++        foreach (['name', 'slots.0.slot_key', 'slots.0.side', 'slots.0.option_type', 'slots.0.ratio', 'slots.2.slot_key'] as $k) self::assertArrayHasKey($k, $bad['errors']);
++
++        $unknown = $this->templates->create(1, ['name' => 'X', 'slots' => [['slot_key' => 'a', 'side' => 'BUY', 'option_type' => 'CALL']],
++            'constraints' => [['type' => 'strike_order', 'slots' => ['a', 'zzz']]]]);
++        self::assertArrayHasKey('constraints.0', $unknown['errors']);
++        $evil = $this->templates->create(1, ['name' => 'X', 'slots' => [['slot_key' => 'a', 'side' => 'BUY', 'option_type' => 'CALL']],
++            'constraints' => [['type' => 'eval', 'code' => 'system("ls")', 'slots' => ['a', 'a']]]]);
++        self::assertArrayHasKey('constraints.0', $evil['errors']);
++        self::assertSame(0, (int) $this->pdo->query("SELECT COUNT(*) FROM strategy_templates WHERE user_id = 1")->fetchColumn());
++    }
++
++    public function testLegacyOperationsKeepWorkingWithoutStructuredPosition(): void
++    {
++        $ops = new OperationService($this->pdo, new OperationRepository($this->pdo));
++        $r = $ops->register(1, ['option_contract_id' => 2, 'side' => 'BUY', 'quantity' => 1, 'unit_price' => 5, 'operation_kind' => 'OPEN']);
++        self::assertTrue($r['success']);
++        self::assertNull($r['data']['structured_position_id']);
++    }
++
++    public function testOperationCannotReferenceAnotherUsersStrategy(): void
++    {
++        $this->pdo->exec("INSERT INTO strategies (user_id, name) VALUES (2, 'Estratégia alheia')");
++        $ops = new OperationService($this->pdo, new OperationRepository($this->pdo));
++        $r = $ops->register(1, ['option_contract_id' => 2, 'side' => 'BUY', 'quantity' => 1, 'unit_price' => 5, 'operation_kind' => 'OPEN', 'strategy_id' => 1]);
++        self::assertFalse($r['success']);
++        self::assertArrayHasKey('strategy_id', $r['errors']);
++        self::assertSame(0, $this->rows('operations'));
++    }
++}
+-- 
+2.43.0
+
