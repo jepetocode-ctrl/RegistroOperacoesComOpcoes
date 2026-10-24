@@ -286,12 +286,12 @@ final class OperationService
         }
 
         $realized = $this->pdo->prepare(
-            'SELECT COALESCE(closing.strategy_id, opening.strategy_id) AS strategy_id, SUM(c.realized_result) AS realized_result
+            'SELECT COALESCE(opening.strategy_id, closing.strategy_id) AS strategy_id, SUM(c.realized_result) AS realized_result
              FROM operation_closures c
              JOIN operations opening ON opening.id = c.opening_operation_id AND opening.user_id = c.user_id
              JOIN operations closing ON closing.id = c.closing_operation_id AND closing.user_id = c.user_id
              WHERE c.user_id = :user_id
-             GROUP BY COALESCE(closing.strategy_id, opening.strategy_id)'
+             GROUP BY COALESCE(opening.strategy_id, closing.strategy_id)'
         );
         $realized->execute(['user_id' => $userId]);
         foreach ($realized->fetchAll(PDO::FETCH_ASSOC) as $row) {
