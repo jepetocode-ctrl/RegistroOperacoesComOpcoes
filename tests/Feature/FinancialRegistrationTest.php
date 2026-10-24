@@ -100,7 +100,7 @@ final class FinancialRegistrationTest extends TestCase
         $this->pdo->exec("INSERT INTO option_contracts (user_id, asset_id, code, option_type, strike_price, expiration_date) VALUES (1, 999, 'PETR2201C', 'CALL', 25.50, '2027-01-15')");
     }
 
-    public function testFinancialMasterDataIsSharedBetweenUsers(): void
+    public function testFinancialMasterDataIsIsolatedBetweenUsers(): void
     {
         $this->pdo->exec("INSERT INTO users (username, password_hash) VALUES ('owner', 'hash')");
         $this->pdo->exec("INSERT INTO users (username, password_hash) VALUES ('other', 'hash-2')");
@@ -123,10 +123,10 @@ final class FinancialRegistrationTest extends TestCase
         $this->assertTrue($created['success']);
         $this->assertTrue($contract['success']);
         $this->assertTrue($strategy['success']);
-        $this->assertCount(1, $this->service->list('assets', 2));
-        $this->assertCount(1, $this->service->list('option_contracts', 2));
-        $this->assertCount(1, $this->service->list('strategies', 2));
-        $this->assertNotNull($this->service->get('assets', 2, (int) $created['data']['id']));
+        $this->assertCount(0, $this->service->list('assets', 2));
+        $this->assertCount(0, $this->service->list('option_contracts', 2));
+        $this->assertCount(0, $this->service->list('strategies', 2));
+        $this->assertNull($this->service->get('assets', 2, (int) $created['data']['id']));
         $this->assertCount(1, $this->service->list('assets', 1));
     }
 }

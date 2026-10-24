@@ -7,6 +7,7 @@ use App\Controllers\FinancialRegistrationController;
 use App\Controllers\HomeController;
 use App\Controllers\OperationController;
 use App\Controllers\RolloverController;
+use App\Controllers\StructuredPositionController;
 
 return [
     ['GET', '/api/status', [HomeController::class, 'apiStatus']],
@@ -39,4 +40,15 @@ return [
     ['GET', '/api/rollovers', [RolloverController::class, 'handle']],
     ['GET', '/api/rollovers/{uuid}', [RolloverController::class, 'handle']],
     ['POST', '/api/rollovers', [RolloverController::class, 'handle']],
+    ['GET', '/api/strategy-templates', [StructuredPositionController::class, 'handle']],
+    ['POST', '/api/strategy-templates', [StructuredPositionController::class, 'handle']],
+    ['GET', '/api/strategy-templates/{id}', [StructuredPositionController::class, 'handle']],
+    ['PUT', '/api/strategy-templates/{id}', [StructuredPositionController::class, 'handle']],
+    ['POST', '/api/strategy-templates/{id}/clone', [StructuredPositionController::class, 'handle']],
+    ['GET', '/api/structured-positions', [StructuredPositionController::class, 'handle']],
+    ['POST', '/api/structured-positions', [StructuredPositionController::class, 'handle']],
+    ['GET', '/api/structured-positions/{uuid}', [StructuredPositionController::class, 'handle']],
+    ['POST', '/api/structured-positions/{uuid}/close', [StructuredPositionController::class, 'handle']],
+    ['POST', '/api/structured-positions/{uuid}/roll', [StructuredPositionController::class, 'handle']],
+    ['GET', '/api/unstructured-operations', [StructuredPositionController::class, 'handle']],
 ];

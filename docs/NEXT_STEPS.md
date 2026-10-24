@@ -1,39 +1,31 @@
 # Próximos passos
 
-## Prioridade 1: concluir migração de runtime
+## Prioridade 1: robustez e migração de runtime
 
 1. Mover autenticação e sessão para Laravel nativo, sem dependência de `App\Support\SessionManager`.
 2. Migrar controladores revertidos para rotas do framework sem o adaptador legado.
-3. Consolidar o cadastro de estratégias e posições no backend Laravel.
 
-## Prioridade 2: modelar e persistir pernas
+## Prioridade 2: consolidar o domínio financeiro
 
-1. Realizar `INSERT` em `strategy_legs` para cada perna da estratégia.
-2. Validar exclusão/integridade para estrutura não suportada.
-3. Reabrir e editar estratégia via endpoint Laravel completo.
+1. Integrar ou manter paridade verificável entre o payoff PHP e o motor TypeScript.
+2. Ampliar o ledger para pernas de ativo-objeto antes de habilitar Collar/Fence com ações.
+3. Definir regras de risco e payoff para estruturas com vencimentos diferentes sem produzir estimativas enganosas.
 
-## Prioridade 3: ampliar motor financeiro
+## Prioridade 3: ampliar experiência e catálogo
 
-1. Implementar regras de payoff para spreads, straddles e iron condor mais robustos.
-2. Definir payoffs não suportados sem resultados enganosos.
-3. Integrar pontos de equilíbrio e cenário contínuo em API final.
-
-## Prioridade 4: expor interface e validação real
-
-1. Criar formulário de cadastro multi-perna via Laravel Blade ou Livewire.
-2. Validar reabertura da posição com dados persistidos.
-3. Validar UI, autenticação e edição em navegador.
+1. Adicionar validação automatizada em navegador para criação, encerramento e rolagem.
+2. Ampliar templates somente com regras, limitações e testes correspondentes.
+3. Melhorar tratamento de posições legadas desalinhadas, preservando ações seguras pelo ledger.
 
 ## Validação necessária antes de fechamento
 
-- cadastro de estratégia com múltiplas pernas via UI
-- persistência correta de todas as pernas
-- reabertura e edição da posição
-- identificação explícita de estruturas não suportadas
-- soma do payoff consolidado com quantidades, multiplicadores e sinais corretos
-- custo/crédito inicial incorporado ao resultado líquido
-- passagens de testes automatizados relevantes
+- criação de modelos próprios e persistência dos slots
+- registro atômico de posições estruturadas e trilha de auditoria
+- encerramento parcial e rolagem em lotes-base
+- identificação explícita de estruturas e payoffs não suportados
+- isolamento por usuário
+- testes PHP, motor TypeScript, migrações e registro de rotas
 
 ## Risco principal
 
-A arquitetura atual está híbrida e funcional em partes, mas a conversão final para Laravel com UI e persistência estruturada exige uma etapa de migração explícita, não só bootstrap e motor financeiro.
+A arquitetura continua híbrida. A UI e a persistência estruturada estão integradas às rotas legadas; a conversão para Laravel nativo e a paridade dos motores financeiros exigem etapas próprias.

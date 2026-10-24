@@ -11,8 +11,11 @@ use Illuminate\Http\Request;
 
 final class StrategyLegController
 {
-    public function __construct(private readonly StrategyLegService $service = new StrategyLegService(Database::defaultConnection()))
+    private readonly StrategyLegService $service;
+
+    public function __construct(?StrategyLegService $service = null)
     {
+        $this->service = $service ?? new StrategyLegService(Database::defaultConnection());
     }
 
     public function index(Request $request, int $strategy): JsonResponse

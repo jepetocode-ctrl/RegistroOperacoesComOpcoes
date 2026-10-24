@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-A base do projeto está em um estado híbrido, funcional e validado em partes, mas ainda não finalizado como conversão completa para Laravel.
+A aplicação permanece híbrida, mas agora possui um fluxo integrado de modelos e posições estruturadas sobre o ledger existente.
 
 ### O que está confirmado
 
@@ -12,21 +12,30 @@ A base do projeto está em um estado híbrido, funcional e validado em partes, m
 - migrações Laravel executam corretamente em SQLite temporário
 - motor financeiro em TypeScript passou em 8 testes de payoff, reconhecimento e Black-Scholes
 
+### Implementações concluídas neste fluxo
+
+- builder visual de modelos com criação, edição, clonagem e slots configuráveis
+- registro transacional de posições e validação de propriedade, proporções e restrições
+- dashboard agrupada, visualização de pernas e ações de encerramento/rolagem em nível de posição
+- persistência de modelos, slots, instâncias e auditoria, preservando vínculo ao ledger
+- operações estruturadas protegidas contra edição ou encerramento por fluxos avulsos
+- catálogo com suporte explícito e payoff indisponível para cenários não suportados
+
 ### O que ainda não está concluído
 
-- cadastro de estratégia multi-perna completo pela UI
-- edição/reabertura real de posições pela interface
-- persistência formal de `strategy_legs` em fluxo de cadastro web finalizado
 - migração total de autenticação e sessão para Laravel
 - conversão final de todos os controllers de legado para o framework
+- paridade automatizada/runtime entre payoff PHP e motor TypeScript
+- ledger para pernas de ativo-objeto e payoff com vencimentos diferentes
+- validação visual automatizada em navegador para todos os fluxos
 
 ## Degradações e riscos
 
 - os endpoints legado e o Laravel convivem; este é um estado de transição e não de remoção final do PHP puro
-- `strategy_legs` e `legs` em JSON podem divergir se a gravação não for centralizada
-- validação da UI web e fluxo de edição ainda precisa ser montada sobre a interface final
+- existem duas implementações de cálculo financeiro
+- ações estruturadas devem ser realizadas pela própria posição, e não por operações avulsas
 
-## Verificação executada
+## Comandos de validação
 
 ```bash
 composer test
@@ -35,13 +44,7 @@ DB_CONNECTION=sqlite DB_DATABASE=/tmp/registro-laravel-migration-fixed.sqlite ph
 curl -sS -o /tmp/laravel-health-retry.json -w 'health_http=%{http_code}\n' http://127.0.0.1:8020/health
 ```
 
-Resultados reais:
-
-- `composer test`: `OK (18 tests, 73 assertions)`
-- `npm test --prefix src/financial-engine`: `8 tests passed, 0 failed`
-- `php artisan migrate --force`: sucess full on SQLite temp database
-- health endpoint: `HTTP 200`
-
-## Próximo passo realista
-
-Completar a camada de cadastro/edit/visualização em Laravel e standardizar a escrita de pernas em `strategy_legs`, mantendo compatibilidade com o JSON legado.
+- `composer test`
+- `npm test --prefix src/financial-engine`
+- `php artisan route:list --except-vendor`
+- migrações completas em SQLite temporário

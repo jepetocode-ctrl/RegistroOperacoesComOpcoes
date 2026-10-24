@@ -138,12 +138,14 @@ final class OperationServiceTest extends TestCase
 
     public function testContractTransactionHistoryIsFilteredByAuthenticatedUser(): void
     {
+        $this->pdo->exec("INSERT INTO assets (user_id,symbol,name) VALUES (2,'VALE3','Vale')");
+        $this->pdo->exec("INSERT INTO option_contracts (user_id,asset_id,code,option_type,strike_price,expiration_date,contract_multiplier) VALUES (2,2,'VALE3C','CALL',10,'2027-01-15',100)");
         $this->service->register(1, ['option_contract_id'=>1,'side'=>'BUY','quantity'=>2,'unit_price'=>10,'operation_kind'=>'OPEN']);
         $this->service->register(1, ['option_contract_id'=>1,'side'=>'SELL','quantity'=>1,'unit_price'=>12,'operation_kind'=>'PARTIAL_CLOSE']);
-        $this->service->register(2, ['option_contract_id'=>1,'side'=>'BUY','quantity'=>4,'unit_price'=>9,'operation_kind'=>'OPEN']);
+        $this->service->register(2, ['option_contract_id'=>2,'side'=>'BUY','quantity'=>4,'unit_price'=>9,'operation_kind'=>'OPEN']);
 
         $ownerHistory = $this->service->transactionHistory(1, 1);
-        $otherHistory = $this->service->transactionHistory(2, 1);
+        $otherHistory = $this->service->transactionHistory(2, 2);
 
         self::assertCount(2, $ownerHistory);
         self::assertCount(1, $otherHistory);
@@ -152,13 +154,35 @@ final class OperationServiceTest extends TestCase
         self::assertSame(4, (int) $otherHistory[0]['quantity']);
     }
 
-    public function testUsersCanUseSharedContractsButPositionsRemainIsolated(): void
+    public function testUsersCannotUseContractsOwnedByAnotherUser(): void
     {
         $result = $this->service->register(2, ['option_contract_id'=>1,'side'=>'BUY','quantity'=>2,'unit_price'=>10,'operation_kind'=>'OPEN']);
 
-        self::assertTrue($result['success']);
+        self::assertFalse($result['success']);
+        self::assertSame(422, $result['status']);
         self::assertSame([], $this->service->positions(1));
-        self::assertSame(2, $this->service->positions(2)[0]['open_quantity']);
+        self::assertSame([], $this->service->positions(2));
+    }
+
+    public function testOrdinaryOperationCannotCloseAStructuredPositionLeg(): void
+    {
+        $this->pdo->exec('ALTER TABLE operations ADD COLUMN structured_position_id INTEGER NULL');
+        $opening = $this->service->register(1, ['option_contract_id'=>1,'side'=>'BUY','quantity'=>2,'unit_price'=>10,'operation_kind'=>'OPEN']);
+        $this->pdo->prepare('UPDATE operations SET structured_position_id = 99 WHERE id = :id')->execute(['id' => $opening['data']['id']]);
+
+        $result = $this->service->register(1, [
+            'option_contract_id'=>1,
+            'side'=>'SELL',
+            'quantity'=>1,
+            'unit_price'=>12,
+            'operation_kind'=>'PARTIAL_CLOSE',
+            'reference_operation_id'=>$opening['data']['id'],
+        ]);
+
+        self::assertFalse($result['success']);
+        self::assertSame(422, $result['status']);
+        self::assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM operations')->fetchColumn());
+        self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM operation_closures')->fetchColumn());
     }
 
     public function testReversalClosesCurrentPositionAndOpensInverseRemainder(): void

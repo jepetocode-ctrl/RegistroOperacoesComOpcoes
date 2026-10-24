@@ -94,6 +94,10 @@
         .lot-actions { display:flex; gap:6px; }
         .lot-actions .table-action { padding:7px 8px; }
         .table-action.secondary { background:#ecfdf5; color:#166534; }
+        .structured-details { margin-top:8px; white-space:normal; min-width:240px; }
+        .structured-details ul { padding-left:18px; margin:8px 0; }
+        .structured-actions { display:flex; gap:6px; flex-wrap:wrap; }
+        .structured-contracts { color:var(--muted); font-size:.84rem; line-height:1.5; }
         #calculators { scroll-margin-top:90px; }
         #calculators .calculator-shell { background:#fff; border:1px solid var(--line); border-radius:16px; padding:22px; }
         #calculators .status { background:#eff6ff; color:#1d4ed8; }
@@ -124,7 +128,7 @@
     <aside class="sidebar" aria-label="Navegação principal">
         <div class="side-label">Workspace</div>
         <nav class="side-nav">
-            <a href="#overview" aria-current="page">▦ Visão geral</a><a href="#positions">▤ Posições</a><a href="#lots">≡ Lotes em aberto</a><a href="#calculators">∑ Calculadoras</a><a href="/registros">▣ Registros</a>
+            <a href="#overview" aria-current="page">▦ Visão geral</a><a href="#structured-positions">▤ Posições estruturadas</a><a href="#positions">▤ Posições líquidas</a><a href="#lots">≡ Lotes em aberto</a><a href="#calculators">∑ Calculadoras</a><a href="/registros">▣ Registros</a>
         </nav>
     </aside>
     <main class="workspace">
@@ -143,6 +147,22 @@
             <div class="filters"><input id="position-search" type="search" placeholder="Filtrar por código do contrato" aria-label="Filtrar contratos"><select id="position-state" aria-label="Filtrar estado da posição"><option value="all">Todas as posições</option><option value="open">Com posição aberta</option><option value="closed">Sem posição aberta</option><option value="unc quoted">Sem cotação</option></select></div>
             <div class="table-wrap"><table><thead><tr><th>Contrato</th><th>Qtd. líquida</th><th>Fluxo bruto</th><th>Custos</th><th>Realizado</th><th>Não realizado</th><th>Cotação</th><th>Ações</th></tr></thead><tbody id="positions-body"><tr><td colspan="8"><div class="loading-line"></div></td></tr></tbody></table></div>
         </section>
+        <section id="structured-positions" class="panel"><h2>Posições estruturadas</h2><p class="muted">Instâncias agrupadas pelo modelo; valores realizados vêm das alocações do ledger e resultado não realizado fica indisponível quando falta cotação.</p>
+            <div class="table-wrap"><table><thead><tr><th>Estratégia</th><th>Ativo</th><th>Status</th><th>Fluxo inicial</th><th>Realizado</th><th>Não realizado</th><th>Vencimento próximo</th><th>Contratos componentes</th><th>Ações</th></tr></thead><tbody id="structured-positions-body"><tr><td colspan="9"><div class="loading-line"></div></td></tr></tbody></table></div>
+        </section>
+        <section id="unstructured-operations" class="panel"><h2>Operações avulsas</h2><p class="muted">Operações sem vínculo com uma posição estruturada, incluindo registros legados; nenhuma agrupação automática é presumida.</p>
+            <div class="table-wrap"><table><thead><tr><th>Data</th><th>Contrato</th><th>Lado</th><th>Quantidade</th><th>Preço</th><th>Fluxo bruto</th><th>Tipo</th></tr></thead><tbody id="unstructured-operations-body"><tr><td colspan="7"><div class="loading-line"></div></td></tr></tbody></table></div>
+        </section>
+        <dialog id="structured-action-dialog" aria-labelledby="structured-action-title">
+            <form id="structured-action-form" class="dialog-content">
+                <h2 id="structured-action-title">Encerrar posição</h2>
+                <p id="structured-action-hint" class="muted"></p>
+                <input name="_csrf_token" type="hidden" value="<?php echo htmlspecialchars((string) App\Support\SessionManager::csrfToken(), ENT_QUOTES, 'UTF-8'); ?>">
+                <div id="structured-action-fields" class="dialog-fields"></div>
+                <div id="structured-action-error" class="dialog-error" role="alert" hidden></div>
+                <div class="dialog-actions"><button class="refresh" type="button" id="structured-action-cancel">Cancelar</button><button class="primary" type="submit">Confirmar</button></div>
+            </form>
+        </dialog>
         <section id="lots" class="panel"><h2>Lotes em aberto</h2><p class="muted">Aumente ou desmonte cada lote. A desmontagem pode ser parcial ou integral.</p><div class="filters"><input id="lot-search" type="search" placeholder="Filtrar por contrato ou lado" aria-label="Filtrar lotes"></div><div class="table-wrap"><table><thead><tr><th>Contrato</th><th>Lado</th><th>Qtd. aberta</th><th>Preço de entrada</th><th>Data</th><th>Tipo</th><th>Ações</th></tr></thead><tbody id="lots-body"><tr><td colspan="7"><div class="loading-line"></div></td></tr></tbody></table></div></section>
         <dialog id="operation-editor" aria-labelledby="operation-editor-title">
             <form id="operation-edit-form" class="dialog-content">
@@ -363,6 +383,193 @@
     for (const [tab,panel] of [['tab-bs','panel-bs'],['tab-reverse','panel-reverse']]) $(tab).addEventListener('click',()=>{
         for(const [t,pan] of [['tab-bs','panel-bs'],['tab-reverse','panel-reverse']]) { $(t).setAttribute('aria-selected',String(t===tab)); $(pan).hidden=pan!==panel; }
     });
+})();
+</script>
+<script>
+(() => {
+    'use strict';
+    const csrf = <?php echo json_encode((string) App\Support\SessionManager::csrfToken(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+    const state = {positions: [], unstructured: [], contracts: []};
+    const $ = id => document.getElementById(id);
+    const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+    const money = (value, currency = 'BRL') => value === null || value === undefined
+        ? 'Indisponível'
+        : new Intl.NumberFormat('pt-BR', {style:'currency', currency}).format(Number(value));
+    const formatDate = value => {
+        if (!value) return '—';
+        const date = new Date(String(value).slice(0, 10) + 'T00:00:00');
+        return Number.isNaN(date.getTime()) ? escapeHtml(value) : date.toLocaleDateString('pt-BR');
+    };
+    async function loadData(path) {
+        const response = await fetch(path, {credentials:'same-origin', headers:{Accept:'application/json'}});
+        let payload;
+        try { payload = await response.json(); } catch { throw new Error(`Resposta inválida da API: ${path}`); }
+        if (!response.ok || payload.success === false) throw new Error(payload.message || `Falha ao carregar ${path}`);
+        return payload.data ?? [];
+    }
+
+    function renderStructured() {
+        const body = $('structured-positions-body');
+        if (!state.positions.length) {
+            body.innerHTML = '<tr><td colspan="9" class="empty">Nenhuma posição estruturada registrada.</td></tr>';
+            return;
+        }
+        body.innerHTML = state.positions.map(position => {
+            const legs = position.legs || [];
+            const canAct = position.status !== 'CLOSED' && legs.some(leg => Number(leg.open_quantity) > 0);
+            const contracts = legs.length
+                ? `<details class="structured-details"><summary>${legs.length} registro(s) de perna</summary><ul>${legs.map(leg => `<li class="structured-contracts">${escapeHtml(leg.contract_code)} · ${leg.side === 'BUY' ? 'Compra' : 'Venda'} ${leg.quantity} (${leg.open_quantity} aberta(s)) · strike ${escapeHtml(leg.strike_price)} · venc. ${formatDate(leg.expiration_date)}</li>`).join('')}</ul><p class="structured-contracts">Classificação declarada: ${escapeHtml(position.strategy)} · inferida: ${escapeHtml(position.inferred_strategy || position.classification_status)}</p>${position.payoff?.supported ? `<p class="structured-contracts">Exposição das pernas abertas no vencimento (não soma resultado realizado): ponto(s) de equilíbrio ${position.payoff.break_even_points.map(value => money(value, position.currency)).join(', ') || '—'} · lucro máximo ${position.payoff.max_profit === null ? 'ilimitado/não determinável' : money(position.payoff.max_profit, position.currency)} · prejuízo máximo ${position.payoff.max_loss === null ? 'ilimitado/não determinável' : money(position.payoff.max_loss, position.currency)}</p>` : `<p class="structured-contracts">Payoff indisponível: ${escapeHtml(position.payoff?.unsupported_reason || 'estrutura não suportada')}</p>`}</details>`
+                : '—';
+            return `<tr>
+                <td><strong>${escapeHtml(position.strategy)}</strong><br><small>${escapeHtml(position.name)}</small></td>
+                <td>${escapeHtml(position.asset_symbol)}</td>
+                <td><span class="pill">${escapeHtml(position.status)}</span></td>
+                <td>${escapeHtml(position.initial_kind)} · ${money(position.initial_cash_flow, position.currency)}<br><small>fluxo de caixa, não lucro</small></td>
+                <td>${money(position.realized_result, position.currency)}</td>
+                <td>${money(position.unrealized_result, position.currency)}</td>
+                <td>${formatDate(position.nearest_expiration)}</td>
+                <td>${contracts}</td>
+                <td>${canAct ? `<div class="structured-actions"><button class="table-action" type="button" data-structured-action="close" data-uuid="${escapeHtml(position.uuid)}">Encerrar</button><button class="table-action secondary" type="button" data-structured-action="roll" data-uuid="${escapeHtml(position.uuid)}">Rolar</button></div>` : '—'}</td>
+            </tr>`;
+        }).join('');
+    }
+
+    function renderUnstructured() {
+        const body = $('unstructured-operations-body');
+        if (!state.unstructured.length) {
+            body.innerHTML = '<tr><td colspan="7" class="empty">Nenhuma operação avulsa.</td></tr>';
+            return;
+        }
+        body.innerHTML = state.unstructured.map(operation => `<tr>
+            <td>${escapeHtml(operation.executed_at)}</td>
+            <td>${escapeHtml(operation.contract_code)}</td>
+            <td>${operation.side === 'BUY' ? 'Compra' : 'Venda'}</td>
+            <td>${Number(operation.quantity)}</td>
+            <td>${money(operation.unit_price)}</td>
+            <td>${money(operation.gross_cash_flow)}<br><small>fluxo bruto, não lucro</small></td>
+            <td>${escapeHtml(operation.operation_kind || 'TRADE')}</td>
+        </tr>`).join('');
+    }
+
+    function protectStructuredLedgerRows() {
+        const ids = new Set(state.positions.flatMap(position => (position.legs || []).map(leg => Number(leg.operation_id))));
+        document.querySelectorAll('[data-edit-operation], [data-operation-id]').forEach(button => {
+            const operationId = button.dataset.editOperation ?? button.dataset.operationId;
+            if (!ids.has(Number(operationId))) return;
+            button.disabled = true;
+            button.title = 'Perna de posição estruturada deve ser alterada pelas ações da posição.';
+        });
+    }
+
+    function slotGroups(position) {
+        const groups = new Map();
+        for (const leg of position.legs || []) {
+            if (Number(leg.open_quantity) <= 0) continue;
+            const group = groups.get(leg.slot_key) || {slot_key:leg.slot_key, label:leg.label, ratio:Number(leg.ratio) || 1, option_type:leg.option_type, open_quantity:0, contracts:new Set()};
+            group.open_quantity += Number(leg.open_quantity);
+            group.contracts.add(Number(leg.option_contract_id));
+            groups.set(leg.slot_key, group);
+        }
+        return [...groups.values()];
+    }
+
+    function openAction(position, action) {
+        const groups = slotGroups(position);
+        const maxLots = Math.min(...groups.map(group => Math.floor(group.open_quantity / group.ratio)));
+        if (!groups.length || maxLots < 1) {
+            window.alert('As pernas abertas não formam um lote-base completo. Revise a posição antes de encerrar ou rolar.');
+            return;
+        }
+        const dialog = $('structured-action-dialog');
+        const title = action === 'close' ? 'Encerrar posição estruturada' : 'Rolar posição estruturada';
+        $('structured-action-title').textContent = title;
+        $('structured-action-hint').textContent = `Estratégia ${position.strategy} · ${position.asset_symbol} · até ${maxLots} lote(s)-base disponíveis. O registro será atômico.`;
+        const controls = groups.map((group, index) => {
+            const contractSelect = action === 'roll'
+                ? `<label class="wide">Novo contrato<select data-contract required><option value="">Selecione</option>${state.contracts.filter(contract => Number(contract.asset_id) === Number(position.asset_id) && contract.option_type === group.option_type && String(contract.status).toUpperCase() === 'ACTIVE').map(contract => `<option value="${Number(contract.id)}" ${group.contracts.has(Number(contract.id)) ? 'disabled' : ''}>${escapeHtml(contract.code)} · strike ${escapeHtml(contract.strike_price)} · ${formatDate(contract.expiration_date)}</option>`).join('')}</select></label>`
+                : '';
+            return `<fieldset class="dialog-fields structured-slot-fields" data-slot="${escapeHtml(group.slot_key)}">
+                <legend>${escapeHtml(group.label || group.slot_key)} · ${group.open_quantity} aberta(s)</legend>
+                ${contractSelect}
+                <label>Preço unitário<input data-price type="number" min="0" step="0.000001" required></label>
+                <label>Custos<input data-costs type="number" min="0" step="0.000001" value="0" required></label>
+            </fieldset>`;
+        }).join('');
+        $('structured-action-fields').innerHTML = `<label class="wide">Lotes-base<input id="structured-action-lots" type="number" min="1" max="${maxLots}" value="${maxLots}" required></label>${controls}`;
+        $('structured-action-error').hidden = true;
+        dialog.dataset.uuid = position.uuid;
+        dialog.dataset.action = action;
+        dialog.showModal();
+    }
+
+    async function submitAction(event) {
+        event.preventDefault();
+        const dialog = $('structured-action-dialog');
+        const action = dialog.dataset.action;
+        const uuid = dialog.dataset.uuid;
+        const fields = [...document.querySelectorAll('.structured-slot-fields')].map(row => {
+            const leg = {
+                slot_key: row.dataset.slot,
+                unit_price: Number(row.querySelector('[data-price]').value),
+                costs: Number(row.querySelector('[data-costs]').value),
+            };
+            if (action === 'roll') leg.option_contract_id = Number(row.querySelector('[data-contract]').value);
+            return leg;
+        });
+        const submit = $('structured-action-form').querySelector('[type="submit"]');
+        const error = $('structured-action-error');
+        submit.disabled = true;
+        error.hidden = true;
+        try {
+            const response = await fetch(`/api/structured-positions/${encodeURIComponent(uuid)}/${action}`, {
+                method:'POST',
+                credentials:'same-origin',
+                headers:{Accept:'application/json','Content-Type':'application/json'},
+                body:JSON.stringify({_csrf_token:csrf,lots:Number($('structured-action-lots').value),legs:fields}),
+            });
+            const payload = await response.json();
+            if (!response.ok || payload.success === false) throw new Error(payload.message || Object.values(payload.errors || {}).join(' ') || 'Ação não concluída.');
+            dialog.close();
+            await loadStructuredData();
+        } catch (exception) {
+            error.textContent = exception.message;
+            error.hidden = false;
+        } finally {
+            submit.disabled = false;
+        }
+    }
+
+    async function loadStructuredData() {
+        const positionsBody = $('structured-positions-body');
+        try {
+            const [positions, unstructured, contracts] = await Promise.all([
+                loadData('/api/structured-positions'),
+                loadData('/api/unstructured-operations'),
+                loadData('/api/option-contracts'),
+            ]);
+            state.positions = positions;
+            state.unstructured = unstructured;
+            state.contracts = contracts;
+            renderStructured();
+            renderUnstructured();
+            protectStructuredLedgerRows();
+        } catch (exception) {
+            positionsBody.innerHTML = `<tr><td colspan="9" class="empty">${escapeHtml(exception.message)}</td></tr>`;
+            $('unstructured-operations-body').innerHTML = `<tr><td colspan="7" class="empty">${escapeHtml(exception.message)}</td></tr>`;
+        }
+    }
+
+    $('structured-positions-body').addEventListener('click', event => {
+        const button = event.target.closest('[data-structured-action]');
+        if (!button) return;
+        const position = state.positions.find(item => item.uuid === button.dataset.uuid);
+        if (position) openAction(position, button.dataset.structuredAction);
+    });
+    $('structured-action-cancel').addEventListener('click', () => $('structured-action-dialog').close());
+    $('structured-action-form').addEventListener('submit', submitAction);
+    $('refresh-dashboard').addEventListener('click', loadStructuredData);
+    new MutationObserver(protectStructuredLedgerRows).observe($('lots-body'), {childList:true, subtree:true});
+    loadStructuredData();
 })();
 </script>
 </body>

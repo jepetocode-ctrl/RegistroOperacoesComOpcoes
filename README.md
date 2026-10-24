@@ -1,44 +1,29 @@
 # RegistroOperacoesComOpcoes
 
-Sistema para registro, análise e simulação de operações com opções.
+Aplicação para registrar, acompanhar e analisar operações com opções.
 
-## Status real do projeto
+## Estado da aplicação
 
-O projeto foi atualizado para um bootstrap Laravel 12 compatível com a base PHP já existente, sem apagar os serviços antigos nem a regra de negócio de persistência em PDO. A compatibilidade foi preservada por meio de:
+O projeto mantém um runtime híbrido: Laravel 12 inicializa a aplicação e suas migrações, enquanto rotas, controladores, sessão e persistência financeira existentes continuam usando a camada legada em PHP/PDO. O fluxo de posições estruturadas integra modelos, pernas e operações avulsas sem substituir o ledger financeiro.
 
-- bootstrap do Laravel em `bootstrap/app.php` e `public/index.php`;
-- roteamento legado em `routes/legacy_web.php` e `routes/legacy_api.php`;
-- migrações Laravel com wrappers por `App\Database\LegacyMigrations`;
-- tabela extra `strategy_legs` para normalizar pernas em formato estruturado;
-- motor financeiro com regra determinística de payoff e reconhecimento em `src/financial-engine`.
+### Posições estruturadas
 
-Ainda não foi concluída a migração total da interface de cadastro para Laravel e também não é correto afirmar que o cadastro de estratégia multi-perna com edição completa, persistência final e reabertura UI estão finalizados.
+- Catálogo inicial e modelos próprios com slots, proporções e restrições; modelos legados são convertidos sem descartar o JSON original e marcados para revisão quando necessário.
+- Builder em `/registros` para criar, clonar e editar modelos, selecionar contratos por perna e visualizar fluxo/custos antes do registro.
+- Registro atômico de todas as pernas, titularidade de ativo/contratos, classificação declarada versus inferida, auditoria e compatibilidade com o ledger atual.
+- Dashboard em `/dashboard` com posições agrupadas, pernas, fluxo inicial, resultados, exposição no vencimento e ações de encerramento/rolagem em lotes-base.
+- Operações avulsas seguem em área separada. Operações de uma posição estruturada não podem ser editadas ou encerradas por um formulário avulso.
+- O catálogo oferece suporte de payoff para opções simples, spreads verticais, straddles/strangles, butterflies e iron condor. Outros modelos podem ser registrados, mas são identificados como não reconhecidos ou sem payoff suportado quando aplicável.
+- Ativos-objeto ainda não podem compor o ledger como pernas de `ACTION`; templates dependentes de ações permanecem indisponíveis. Payoff com vencimentos diferentes não é calculado.
 
-## Implementações confirmadas
+O motor financeiro TypeScript continua disponível em `src/financial-engine` e possui testes próprios. O payoff de posições estruturadas é atualmente calculado por uma implementação PHP; paridade completa entre os dois motores e a migração do runtime para Laravel nativo permanecem trabalho futuro.
 
-- Laravel 12 instalado e bootstrap validado por `php artisan route:list`.
-- Rota HTTP health respondendo com HTTP 200 em ambiente local.
-- Migrações Laravel executando com sucesso em SQLite temporário.
-- Estratégia canônica de pernas com `instrumentType`, `side`, `optionType`, `strike`, `expirationDate`, `quantity`, `premium`, `multiplier`, `costs`.
-- Payoff em vencimento para estratégias determinísticas com suporte explícito de `LONG_CALL`, `SHORT_CALL`, `LONG_PUT`, `SHORT_PUT`, spreads e straddles/strangles/iron condor parcialmente implementados.
-- Regras explícitas de reconhecimento e rejeição de combinações com vencimentos diferentes.
-- Testes de motor: 8 testes passados, 0 falhas.
-
-## Limitações atuais
-
-- Cadastro multi-perna pela interface web ainda não foi reescrito em toda a camada Laravel;
-- edição/reabertura com persistência em tabela estruturada ainda exige chaining com view/controller novos;
-- integração entre UI e backend Laravel para uma estratégia completa ainda é trabalho pendente;
-- não é correto afirmar que todas as estruturas complexas de payoff foram implementadas.
-
-## Requisitos do runtime
+## Requisitos e execução
 
 - PHP 8.3+
 - Composer 2+
-- SQLite para desenvolvimento/testes
-- PostgreSQL como destino de produção (com compatibilidade preservada)
-
-## Execução
+- SQLite para desenvolvimento/testes; PostgreSQL também é suportado pelo projeto
+- Node.js/npm para compilar e testar `src/financial-engine`
 
 ```bash
 composer install
@@ -46,27 +31,14 @@ cp .env.example .env
 php artisan key:generate --force
 php artisan migrate --force
 php artisan route:list --except-vendor
-npm test --prefix src/financial-engine
-```
-
-## Validação executada
-
-Comandos executados com sucesso:
-
-```bash
 composer test
 npm test --prefix src/financial-engine
-DB_CONNECTION=sqlite DB_DATABASE=/tmp/registro-laravel-migration-fixed.sqlite php artisan migrate --force
-curl -sS -o /tmp/laravel-health-retry.json -w 'health_http=%{http_code}\n' http://127.0.0.1:8020/health
 ```
 
-Resultados reais:
+## Documentação
 
-- `composer test` -> `OK (18 tests, 73 assertions)`
-- `npm test --prefix src/financial-engine` -> `8 tests passed, 0 failed`
-- `php artisan migrate --force` em SQLite temporário -> todas as migrações executadas
-- `http://127.0.0.1:8020/health` -> HTTP 200, `status=ok`
-
-## Próximo passo realista
-
-Concluir a camada HTTP/Blade/Laravel das telas de cadastro e edição, migrando os controllers e repositórios de `App\Support\Router` para rotas nativas do framework e gravando as pernas em `strategy_legs` com reabertura/edição real.
+- [API](docs/API.md)
+- [Banco de dados](docs/DATABASE.md)
+- [Regras financeiras](docs/FINANCIAL_RULES.md)
+- [Status do projeto](docs/PROJECT_STATUS.md)
+- [Próximos passos](docs/NEXT_STEPS.md)

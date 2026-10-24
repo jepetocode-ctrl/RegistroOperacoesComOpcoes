@@ -4,9 +4,9 @@
 
 Foi adotada a estratégia de manter o código legado em funcionamento e acrescentar o Laravel 12 como bootstrap compatível. Isso reduz risco de regressão durante a migração.
 
-## 2. Compatibilidade de schema primeiro
+## 2. Compatibilidade de schema e dados primeiro
 
-A aplicação manteve as migrações antiguas funcionando e adicionou uma tabela `strategy_legs` para normalizar pernas sem quebrar referência do JSON legado.
+A aplicação mantém as migrações existentes e adiciona `strategy_templates`, `strategy_template_slots`, `structured_positions` e `structured_position_legs`. O JSON legado é preservado; conteúdos ilegíveis são marcados para revisão.
 
 ## 3. Modelo canônico de perna
 
@@ -23,16 +23,14 @@ O motor financeiro faz reconhecimento somente quando a estrutura combina com reg
 
 ## 5. Payoff determinístico sob vencimento
 
-A lógica implementada cobre `CALL` e `PUT` simples, spreads verticais, straddle/strangle e butterfly em regras explícitas. Estruturas com múltiplos vencimentos continuam sendo rejeitadas por exigirem modelo de trajetória/temporalidade.
+A lógica PHP implementada calcula exposição aberta no vencimento para opções de vencimento comum e retorna indisponível para vencimentos diferentes ou ausência de pernas abertas. Reconhecimento explícito cobre um subconjunto do catálogo; outros modelos podem ser registrados sem reconhecimento garantido.
+
+O motor TypeScript permanece independente e não é chamado por este fluxo. A paridade entre implementações ainda precisa ser estabelecida.
 
 ## 6. Testes como fonte de verdade
 
-O projeto foi validado com:
-
-- 18 testes PHPUnit
-- 8 testes do motor financeiro
-- migração Laravel em SQLite temporário
+O projeto é validado por testes PHPUnit, testes do motor TypeScript e migrações em SQLite temporário.
 
 ## 7. Estado final desta decisão
 
-Ainda não é correto declarar a migração completa para Laravel terminada. A decisão vigente é migrar em etapas, acelerando a base do framework, a camada de dados e o motor financeiro antes de converter a UI completa.
+Ainda não é correto declarar a migração completa para Laravel terminada. A UI e a persistência estruturada estão integradas ao runtime híbrido; a migração nativa, o suporte ao ledger de ativos e a paridade dos motores financeiros são etapas distintas.

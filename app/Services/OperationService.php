@@ -28,8 +28,8 @@ final class OperationService
 
         try {
             $this->pdo->beginTransaction();
-            $contract = $this->pdo->prepare('SELECT id, contract_multiplier FROM option_contracts WHERE id = :id AND status = :status');
-            $contract->execute(['id' => $contractId, 'status' => 'ACTIVE']);
+            $contract = $this->pdo->prepare('SELECT id, contract_multiplier FROM option_contracts WHERE id = :id AND user_id = :user_id AND status = :status');
+            $contract->execute(['id' => $contractId, 'user_id' => $userId, 'status' => 'ACTIVE']);
             $contractRow = $contract->fetch(PDO::FETCH_ASSOC);
             if (!$contractRow) { $this->pdo->rollBack(); return ['success' => false, 'status' => 422, 'errors' => ['option_contract_id' => 'Contrato inexistente ou inativo.']]; }
             $multiplier = (int)$contractRow['contract_multiplier'];
@@ -93,10 +93,16 @@ final class OperationService
                 $this->pdo->rollBack();
                 return ['success' => false, 'status' => 422, 'message' => 'Inversão exige operação contrária maior que a posição líquida atual, para encerrar e abrir a posição inversa.'];
             }
+            foreach ($allocation as $item) {
+                if (($item['opening']['structured_position_id'] ?? null) !== null) {
+                    $this->pdo->rollBack();
+                    return ['success' => false, 'status' => 422, 'message' => 'Posições estruturadas devem ser encerradas ou roladas pelas ações da própria posição.'];
+                }
+            }
             $strategyId = isset($input['strategy_id']) ? (int)$input['strategy_id'] : null;
             if ($strategyId !== null) {
-                $s = $this->pdo->prepare('SELECT id FROM strategies WHERE id = :id');
-                $s->execute(['id' => $strategyId]);
+                $s = $this->pdo->prepare('SELECT id FROM strategies WHERE id = :id AND user_id = :user_id');
+                $s->execute(['id' => $strategyId, 'user_id' => $userId]);
                 if (!$s->fetchColumn()) { $this->pdo->rollBack(); return ['success' => false, 'status' => 422, 'errors' => ['strategy_id' => 'Estratégia inexistente.']]; }
             }
             $data = [
@@ -138,6 +144,10 @@ final class OperationService
                 $this->pdo->rollBack();
                 return ['success' => false, 'status' => 404, 'message' => 'Operação não encontrada.'];
             }
+            if (isset($operation['structured_position_id']) && $operation['structured_position_id'] !== null) {
+                $this->pdo->rollBack();
+                return ['success' => false, 'status' => 422, 'message' => 'Operações vinculadas a uma posição estruturada não podem ser editadas; registre encerramento ou rolagem.'];
+            }
 
             $closures = $this->pdo->prepare('SELECT 1 FROM operation_closures WHERE user_id = :user_id AND (opening_operation_id = :opening_id OR closing_operation_id = :closing_id) LIMIT 1');
             $closures->execute(['user_id' => $userId, 'opening_id' => $id, 'closing_id' => $id]);
@@ -168,8 +178,8 @@ final class OperationService
                     $this->pdo->rollBack();
                     return ['success' => false, 'status' => 422, 'errors' => ['strategy_id' => 'Estratégia inválida.']];
                 }
-                $strategy = $this->pdo->prepare('SELECT id FROM strategies WHERE id = :id');
-                $strategy->execute(['id' => $strategyId]);
+                $strategy = $this->pdo->prepare('SELECT id FROM strategies WHERE id = :id AND user_id = :user_id');
+                $strategy->execute(['id' => $strategyId, 'user_id' => $userId]);
                 if (!$strategy->fetchColumn()) {
                     $this->pdo->rollBack();
                     return ['success' => false, 'status' => 422, 'errors' => ['strategy_id' => 'Estratégia inexistente.']];
@@ -253,8 +263,8 @@ final class OperationService
         }
         $quotedAt = (string)($input['quoted_at'] ?? date('Y-m-d H:i:s'));
         if (strtotime($quotedAt) === false) return ['success' => false, 'status' => 422, 'errors' => ['quoted_at' => 'Data/hora inválida.']];
-        $stmt = $this->pdo->prepare('SELECT id FROM option_contracts WHERE id = :id');
-        $stmt->execute(['id' => $contractId]);
+        $stmt = $this->pdo->prepare('SELECT id FROM option_contracts WHERE id = :id AND user_id = :user_id');
+        $stmt->execute(['id' => $contractId, 'user_id' => $userId]);
         if (!$stmt->fetchColumn()) return ['success' => false, 'status' => 422, 'errors' => ['option_contract_id' => 'Contrato inexistente.']];
         $this->pdo->beginTransaction();
         try {
@@ -275,8 +285,8 @@ final class OperationService
 
     public function transactionHistory(int $userId, int $contractId): ?array
     {
-        $contract = $this->pdo->prepare('SELECT id FROM option_contracts WHERE id = :id');
-        $contract->execute(['id' => $contractId]);
+        $contract = $this->pdo->prepare('SELECT id FROM option_contracts WHERE id = :id AND user_id = :user_id');
+        $contract->execute(['id' => $contractId, 'user_id' => $userId]);
         if (!$contract->fetchColumn()) return null;
 
         return $this->repository->transactionHistory($userId, $contractId);

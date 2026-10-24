@@ -16,6 +16,8 @@ return [
     ['POST', '/registros/contratos', [RegistryController::class, 'storeContract']],
     ['POST', '/registros/estrategias', [RegistryController::class, 'storeStrategy']],
     ['POST', '/registros/operacoes', [RegistryController::class, 'storeOperation']],
+    ['POST', '/registros/modelos', [RegistryController::class, 'storeStrategyTemplate']],
+    ['POST', '/registros/posicoes-estruturadas', [RegistryController::class, 'storeStructuredPosition']],
     ['GET', '/login', [AuthController::class, 'loginPage']],
     ['POST', '/login', [AuthController::class, 'login']],
     ['POST', '/logout', [AuthController::class, 'logout']],
