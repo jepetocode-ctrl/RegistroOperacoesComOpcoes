@@ -158,7 +158,10 @@
                     <div>
                         <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:8px;">
                             <strong>Pernas</strong>
-                            <button type="button" class="button-secondary" id="add-leg">Adicionar perna</button>
+                            <div style="display:flex; gap:8px;">
+                                <button type="button" class="button-secondary" id="add-leg">Adicionar perna</button>
+                                <button type="button" class="button-secondary" id="reset-strategy-form">Nova estratégia</button>
+                            </div>
                         </div>
                         <div id="strategy-legs" class="leg-stack"></div>
                     </div>
@@ -199,6 +202,7 @@
                         const form = document.getElementById('strategy-form');
                         const container = document.getElementById('strategy-legs');
                         const addButton = document.getElementById('add-leg');
+                        const resetButton = document.getElementById('reset-strategy-form');
                         const strategyIdInput = document.getElementById('strategy-id');
                         const submitButton = document.getElementById('strategy-submit');
 
@@ -213,6 +217,7 @@
                             const premium = Number(leg.premium ?? 0);
                             const multiplier = Number(leg.contract_multiplier ?? 100);
                             const costs = Number(leg.costs ?? 0);
+
                             row.innerHTML = `
                                 <input type="hidden" name="legs[${index}][position]" value="${index + 1}">
                                 <label class="mini-label">
@@ -253,8 +258,33 @@
                                     Custos
                                     <input type="number" step="0.01" min="0" name="legs[${index}][costs]" value="${costs}">
                                 </label>
+                                <div style="display:flex; align-items:end;">
+                                    <button type="button" class="button-secondary remove-leg" style="width:100%;">Remover</button>
+                                </div>
                             `;
+
+                            row.querySelector('.remove-leg').addEventListener('click', () => {
+                                if (container.children.length > 1) {
+                                    row.remove();
+                                    syncRowPositions();
+                                }
+                            });
+
                             return row;
+                        };
+
+                        const syncRowPositions = () => {
+                            const rows = Array.from(container.querySelectorAll('.leg-row'));
+                            rows.forEach((row, index) => {
+                                row.querySelectorAll('input, select').forEach((field) => {
+                                    const name = field.name;
+                                    if (!name) return;
+                                    const nextName = name.replace(/legs\[\d+\]/, `legs[${index}]`);
+                                    field.name = nextName;
+                                });
+                                const hidden = row.querySelector('input[type="hidden"]');
+                                if (hidden) hidden.value = index + 1;
+                            });
                         };
 
                         const addLeg = (leg = {}) => {
@@ -262,35 +292,46 @@
                             container.appendChild(createRow(index, leg));
                         };
 
-        const renderStrategy = (payload = []) => {
-            container.innerHTML = '';
-            if (!payload.length) {
-                addLeg();
-                return;
-            }
-            payload.forEach((leg) => addLeg(leg));
-        };
+                        const renderStrategy = (payload = []) => {
+                            container.innerHTML = '';
+                            if (!payload.length) {
+                                addLeg();
+                                return;
+                            }
+                            payload.forEach((leg) => addLeg(leg));
+                        };
 
-        addButton.addEventListener('click', () => addLeg());
-        document.querySelectorAll('.load-strategy').forEach((button) => {
-            button.addEventListener('click', () => {
-                const legs = JSON.parse(button.dataset.legs || '[]');
-                document.getElementById('strategy-name').value = button.dataset.name || '';
-                document.getElementById('strategy-description').value = button.dataset.description || '';
-                document.getElementById('strategy-status').value = button.dataset.status || 'ACTIVE';
-                strategyIdInput.value = button.dataset.id || '';
-                submitButton.textContent = 'Atualizar estratégia';
-                renderStrategy(legs);
-            });
-        });
+                        const resetStrategyForm = () => {
+                            strategyIdInput.value = '';
+                            submitButton.textContent = 'Salvar estratégia';
+                            document.getElementById('strategy-name').value = '';
+                            document.getElementById('strategy-description').value = '';
+                            document.getElementById('strategy-status').value = 'ACTIVE';
+                            renderStrategy([]);
+                        };
 
-        form.addEventListener('submit', () => {
-            if (!strategyIdInput.value) {
-                submitButton.textContent = 'Salvar estratégia';
-            }
-        });
+                        addButton.addEventListener('click', () => addLeg());
+                        resetButton.addEventListener('click', resetStrategyForm);
 
-        renderStrategy([]);
+                        document.querySelectorAll('.load-strategy').forEach((button) => {
+                            button.addEventListener('click', () => {
+                                const legs = JSON.parse(button.dataset.legs || '[]');
+                                document.getElementById('strategy-name').value = button.dataset.name || '';
+                                document.getElementById('strategy-description').value = button.dataset.description || '';
+                                document.getElementById('strategy-status').value = button.dataset.status || 'ACTIVE';
+                                strategyIdInput.value = button.dataset.id || '';
+                                submitButton.textContent = 'Atualizar estratégia';
+                                renderStrategy(legs);
+                            });
+                        });
+
+                        form.addEventListener('submit', () => {
+                            if (!strategyIdInput.value) {
+                                submitButton.textContent = 'Salvar estratégia';
+                            }
+                        });
+
+                        renderStrategy([]);
                     })();
                 </script>
             </section>
